@@ -6,14 +6,18 @@
  *
  * 【運用アカウント】jidorikyou@gmail.com
  *
+ * 【フォルダ構成（各イベントごと）】
+ * 📁 {イベント名} 作品データフォルダ
+ *  ├── 📁 写真                      ← 入稿された作品データ「{アカウント名}.jpg」を保存
+ *  │    └── 📁 _旧データ（差し替え前） ← 再入稿時の差し替え前データを自動退避
+ *  ├── 📁 QRコード                  ← 「{アカウント名}_X.png」「{アカウント名}_Instagram.png」を保存
+ *  └── 📊 {イベント名} 入稿ログ       ← 入稿履歴・入稿状況一覧・SNS QRコード一覧を自動記録
+ *
  * 【特徴・安全設計】
  * 1. 本番の「入信届（回答）」スプレッドシート（大阪・東京・名古屋など）は100%「読み取り専用」です。
  *    文字の書き込みやタブ追加は一切行いません。
  * 2. 1行目の見出しから「アカウント名（D列）」「X（E列）」「Instagram（F列）」を自動検出し、
  *    本名・住所・電話番号・メールアドレスの列は絶対に読み込まない安全ロックを搭載しています。
- * 3. 「⚙️自撮り狂_入稿システム設定」シートのF列にある「🔲 QRコードを一括作成」をクリックするだけで、
- *    各イベントフォルダ内の「📁 QRコード」フォルダへ
- *    「{アカウント名}_X.png」「{アカウント名}_Instagram.png」を一括作成して保存します！
  */
 
 // GitHub Pagesの公開ベースURL（設定シートのD列にLINEオプチャ配布用URLを自動表示するために使用）
@@ -47,9 +51,10 @@ const DEFAULT_ACCOUNT_COL_INDEX = 3;
 const DEFAULT_X_COL_INDEX = 4;
 const DEFAULT_INSTAGRAM_COL_INDEX = 5;
 
-// 差し替え前の旧データ退避フォルダ名 ＆ QRコード保存フォルダ名
-const ARCHIVE_FOLDER_NAME = '_旧データ（差し替え前）';
+// 各サブフォルダ名
+const PHOTO_FOLDER_NAME = '写真';
 const QR_FOLDER_NAME = 'QRコード';
+const ARCHIVE_FOLDER_NAME = '_旧データ（差し替え前）';
 
 // バリデーション基準値（3.00 MB = 3 * 1024 * 1024 bytes）
 const MIN_FILE_SIZE_BYTES = 3 * 1024 * 1024;
@@ -57,7 +62,7 @@ const MIN_FILE_SIZE_BYTES = 3 * 1024 * 1024;
 /**
  * セットアップ関数：
  * Apps Scriptエディタ上で「setup」を選択して「▷ 実行」を押すと、
- * 設定シートの更新と、全イベント分のGoogleドライブフォルダ・QRコードフォルダ・入稿ログシートを一括準備します。
+ * 設定シートの更新と、全イベント分のGoogleドライブフォルダ（📁 写真 / 📁 QRコード）・入稿ログシートを一括準備します。
  */
 function setup() {
   const configInfo = ensureAndLoadAllEvents_();
@@ -70,19 +75,30 @@ function setup() {
   for (let i = 0; i < events.length; i++) {
     const ev = events[i];
     const mainFolder = getOrCreateMainFolder_(ev.mainFolderName);
-    getOrCreateSubFolder_(mainFolder, ARCHIVE_FOLDER_NAME);
+
+    // 「📁 写真」フォルダと、その中の「📁 _旧データ（差し替え前）」を作成
+    const photoFolder = getOrCreateSubFolder_(mainFolder, PHOTO_FOLDER_NAME);
+    getOrCreateSubFolder_(photoFolder, ARCHIVE_FOLDER_NAME);
+
+    // 旧仕様でメインフォルダ直下に空の「_旧データ（差し替え前）」が残っていた場合はゴミ箱へ整理
+    cleanupLegacyArchiveFolderInRoot_(mainFolder);
+
+    // 「📁 QRコード」フォルダを作成
     const qrFolder = getOrCreateSubFolder_(mainFolder, QR_FOLDER_NAME);
+
+    // 「📊 入稿ログ」スプレッドシートを作成
     const logSs = getOrCreateLogSpreadsheet_(mainFolder, ev.logSpreadsheetName);
     const exhibitors = getExhibitorListFromSource_(ev.sourceSpreadsheet);
 
-    // 設定シートのE列に作品保存フォルダURL、G列にQRコードフォルダURLを記録
-    configInfo.sheet.getRange(ev.rowNumber, 5).setValue(mainFolder.getUrl());
+    // 設定シートのE列に「📁 写真」フォルダURL、G列に「📁 QRコード」フォルダURLを記録
+    configInfo.sheet.getRange(ev.rowNumber, 5).setValue(photoFolder.getUrl());
     configInfo.sheet.getRange(ev.rowNumber, 7).setValue(qrFolder.getUrl());
 
     Logger.log(`📌 [${ev.eventId}] ${ev.eventName}（出展者数: ${exhibitors.length}名）`);
     Logger.log(`   LINEオプチャ配布用URL: ${FRONTEND_BASE_URL}?event=${ev.eventId}`);
-    Logger.log(`   📁 作品データフォルダ: ${mainFolder.getUrl()}`);
-    Logger.log(`   🔲 QRコードフォルダ: ${qrFolder.getUrl()}`);
+    Logger.log(`   📁 会場親フォルダ: ${mainFolder.getUrl()}`);
+    Logger.log(`   📁 写真フォルダ: ${photoFolder.getUrl()}`);
+    Logger.log(`   📁 QRコードフォルダ: ${qrFolder.getUrl()}`);
     Logger.log(`   📊 入稿ログシート: ${logSs.getUrl()}`);
   }
 
@@ -164,7 +180,7 @@ function doGet(e) {
       eventId: targetEvent.eventId,
       eventName: targetEvent.eventName,
       pageTitle: `${targetEvent.eventName} 作品データ入稿システム`,
-      folderName: targetEvent.mainFolderName,
+      folderName: `${targetEvent.mainFolderName} / ${PHOTO_FOLDER_NAME}`,
       exhibitors: exhibitors,
       submittedExhibitors: submittedExhibitors,
       events: eventSummaries
@@ -180,7 +196,7 @@ function doGet(e) {
 /**
  * APIエンドポイント 2: doPost(e)
  * フロントエンドからPOSTされたBase64画像データと eventId を受け取り、
- * 該当イベントのフォルダへ「{アカウント名}.jpg」として保存・入稿ログ記録を行います。
+ * 該当イベントの「📁 写真」フォルダへ「{アカウント名}.jpg」として保存・入稿ログ記録を行います。
  */
 function doPost(e) {
   const lock = LockService.getScriptLock();
@@ -251,15 +267,16 @@ function doPost(e) {
     }
 
     // ============================================================
-    // 2. 該当イベントの保存先フォルダ取得・作成（サブフォルダなし・1フォルダ集約）
+    // 2. 該当イベントの「📁 写真」フォルダ取得・作成
     // ============================================================
     const mainFolder = getOrCreateMainFolder_(targetEvent.mainFolderName);
-    const archiveFolder = getOrCreateSubFolder_(mainFolder, ARCHIVE_FOLDER_NAME);
+    const photoFolder = getOrCreateSubFolder_(mainFolder, PHOTO_FOLDER_NAME);
+    const archiveFolder = getOrCreateSubFolder_(photoFolder, ARCHIVE_FOLDER_NAME);
 
     // ファイル名に使えない禁止記号を安全な文字に変換
     const safeFileBaseName = sanitizeFileName_(exhibitorName);
     const targetFileName = `${safeFileBaseName}.jpg`;
-    const existingFilesIter = mainFolder.getFilesByName(targetFileName);
+    const existingFilesIter = photoFolder.getFilesByName(targetFileName);
     const hasExistingFile = existingFilesIter.hasNext();
 
     // 誤選択による上書き防止ストッパー
@@ -270,7 +287,7 @@ function doPost(e) {
     }
 
     // ============================================================
-    // 3. 旧ファイルの退避＆最新「{アカウント名}.jpg」の保存
+    // 3. 旧ファイルの退避＆最新「{アカウント名}.jpg」を「📁 写真」に保存
     // ============================================================
     const now = new Date();
     const stampForArchive = Utilities.formatDate(now, 'Asia/Tokyo', 'MMdd_HHmm');
@@ -287,7 +304,7 @@ function doPost(e) {
     }
 
     const blob = Utilities.newBlob(decodedBytes, 'image/jpeg', targetFileName);
-    const savedFile = mainFolder.createFile(blob);
+    const savedFile = photoFolder.createFile(blob);
     const fileUrl = savedFile.getUrl();
 
     // ============================================================
@@ -318,7 +335,7 @@ function doPost(e) {
       exhibitorName: exhibitorName,
       submissionType: submissionType,
       savedFileName: targetFileName,
-      folderName: targetEvent.mainFolderName,
+      folderName: `${targetEvent.mainFolderName} / ${PHOTO_FOLDER_NAME}`,
       fileUrl: fileUrl,
       timestamp: logTimestamp
     });
@@ -360,9 +377,9 @@ function ensureAndLoadAllEvents_() {
       'イベント名（空欄ならシート名から自動取得）',
       '入信届スプレッドシートURL',
       'LINEオプチャ配布用URL（自動生成）',
-      '作品保存フォルダURL',
+      '📁 写真フォルダURL',
       'QRコード一括作成ボタン（クリックで実行）',
-      'QRコード保存フォルダURL'
+      '📁 QRコードフォルダURL'
     ]]);
     sheet.getRange('A1:G1').setFontWeight('bold').setBackground('#e0e7ff');
     sheet.setFrozenRows(1);
@@ -385,15 +402,15 @@ function ensureAndLoadAllEvents_() {
       sheet.getRange(2, 1, initRows.length, 7).setValues(initRows);
     }
   } else {
-    // 既存シートがある場合、F1・G1の見出しを最新化（既存データは保持）
+    // 既存シートがある場合、見出しを最新化（既存データは保持）
     sheet.getRange('A1:G1').setValues([[
       'イベントID（半角英数）',
       'イベント名（空欄ならシート名から自動取得）',
       '入信届スプレッドシートURL',
       'LINEオプチャ配布用URL（自動生成）',
-      '作品保存フォルダURL',
+      '📁 写真フォルダURL',
       'QRコード一括作成ボタン（クリックで実行）',
-      'QRコード保存フォルダURL'
+      '📁 QRコードフォルダURL'
     ]]);
     sheet.getRange('A1:G1').setFontWeight('bold').setBackground('#e0e7ff');
   }
@@ -513,11 +530,13 @@ function handleQrGenerationRequest_(events, configSheet, requestedEventId, overw
  */
 function generateEventQrCodes_(ev, configSheet, overwriteFlag) {
   const mainFolder = getOrCreateMainFolder_(ev.mainFolderName);
+  const photoFolder = getOrCreateSubFolder_(mainFolder, PHOTO_FOLDER_NAME);
+  getOrCreateSubFolder_(photoFolder, ARCHIVE_FOLDER_NAME);
   const qrFolder = getOrCreateSubFolder_(mainFolder, QR_FOLDER_NAME);
 
-  // 設定シートのE列・G列にフォルダURLを記録
+  // 設定シートのE列（写真フォルダURL）・G列（QRコードフォルダURL）を記録
   if (configSheet && ev.rowNumber) {
-    configSheet.getRange(ev.rowNumber, 5).setValue(mainFolder.getUrl());
+    configSheet.getRange(ev.rowNumber, 5).setValue(photoFolder.getUrl());
     configSheet.getRange(ev.rowNumber, 7).setValue(qrFolder.getUrl());
   }
 
@@ -868,7 +887,7 @@ function renderQrResultHtml_(results, requestedEventId) {
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;">
           <a href="${escapeHtmlServer_(res.qrFolderUrl)}" target="_blank"
              style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:700;font-size:14px;">
-            📂 Googleドライブの「QRコード」フォルダを開く
+            📂 Googleドライブの「📁 QRコード」フォルダを開く
           </a>
           <a href="${escapeHtmlServer_(overwriteUrl)}"
              style="display:inline-block;background:#f1f5f9;color:#334155;text-decoration:none;padding:12px 16px;border-radius:8px;font-weight:600;font-size:13px;border:1px solid #cbd5e1;">
@@ -1036,7 +1055,7 @@ function getExhibitorListFromSource_(ss) {
 }
 
 /**
- * 作品データ保存フォルダ内にすでに「{アカウント名}.jpg」が存在する出展者一覧を取得
+ * 「📁 写真」フォルダ内にすでに「{アカウント名}.jpg」が存在する出展者一覧を取得
  */
 function getSubmittedExhibitorList_(mainFolderName) {
   const root = DriveApp.getRootFolder();
@@ -1046,7 +1065,13 @@ function getSubmittedExhibitorList_(mainFolderName) {
   }
 
   const mainFolder = folderIter.next();
-  const filesIter = mainFolder.getFiles();
+  const photoFolderIter = mainFolder.getFoldersByName(PHOTO_FOLDER_NAME);
+  if (!photoFolderIter.hasNext()) {
+    return [];
+  }
+
+  const photoFolder = photoFolderIter.next();
+  const filesIter = photoFolder.getFiles();
   const submitted = [];
 
   while (filesIter.hasNext()) {
@@ -1057,6 +1082,19 @@ function getSubmittedExhibitorList_(mainFolderName) {
     }
   }
   return submitted;
+}
+
+/**
+ * 旧仕様でメインフォルダ直下に空の「_旧データ（差し替え前）」が作られていた場合に自動で片付ける
+ */
+function cleanupLegacyArchiveFolderInRoot_(mainFolder) {
+  const iter = mainFolder.getFoldersByName(ARCHIVE_FOLDER_NAME);
+  while (iter.hasNext()) {
+    const f = iter.next();
+    if (!f.getFiles().hasNext() && !f.getFolders().hasNext()) {
+      f.setTrashed(true);
+    }
+  }
 }
 
 /**
