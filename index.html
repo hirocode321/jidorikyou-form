@@ -1,0 +1,1510 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>自撮り狂 作品データ入稿システム</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-page: #f8fafc;
+      --bg-card: #ffffff;
+      --text-main: #0f172a;
+      --text-sub: #475569;
+      --text-muted: #94a3b8;
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --primary-light: #eef2ff;
+      --border: #e2e8f0;
+      --danger: #dc2626;
+      --danger-bg: #fef2f2;
+      --danger-border: #fecaca;
+      --success: #16a34a;
+      --success-bg: #f0fdf4;
+      --success-border: #bbf7d0;
+      --warning: #d97706;
+      --warning-bg: #fffbeb;
+      --warning-border: #fde68a;
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --radius-sm: 8px;
+      --shadow-sm: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.06);
+      --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.07);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-page);
+      color: var(--text-main);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      padding-bottom: 64px;
+    }
+
+    /* Header */
+    .site-header {
+      background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
+      color: #ffffff;
+      padding: 36px 20px 44px;
+      text-align: center;
+      margin-bottom: -24px;
+    }
+
+    .site-header .badge {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(4px);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #e0e7ff;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      margin-bottom: 12px;
+    }
+
+    .site-header h1 {
+      font-size: clamp(1.35rem, 4vw, 1.8rem);
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin-bottom: 6px;
+    }
+
+    .site-header p {
+      color: #c7d2fe;
+      font-size: 0.9rem;
+    }
+
+    /* Container */
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 0 16px;
+    }
+
+    /* Card */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow-sm);
+      transition: opacity 0.2s ease, border-color 0.2s ease;
+    }
+
+    @media (max-width: 480px) {
+      .card {
+        padding: 18px 16px;
+      }
+    }
+
+    /* Event Selector Card (shown only when ?event= is omitted) */
+    .event-selector-card {
+      display: none;
+      border-top: 4px solid var(--primary);
+      box-shadow: var(--shadow-md);
+    }
+
+    .event-selector-card.active {
+      display: block;
+    }
+
+    .event-link-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .event-link-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      text-decoration: none;
+      background: #f8fafc;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px 18px;
+      color: var(--text-main);
+      font-weight: 700;
+      font-size: 1rem;
+      transition: all 0.15s ease;
+    }
+
+    .event-link-btn:hover {
+      border-color: var(--primary);
+      background: var(--primary-light);
+      color: var(--primary);
+    }
+
+    /* Guidance Card */
+    .guidance-card {
+      border-top: 4px solid var(--primary);
+      box-shadow: var(--shadow-md);
+    }
+
+    .guidance-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 16px;
+    }
+
+    .guidance-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 520px) {
+      .guidance-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .guidance-item {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .guidance-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-sub);
+    }
+
+    .guidance-value {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .guidance-value .highlight {
+      color: var(--primary);
+    }
+
+    .guidance-notice {
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      font-size: 0.875rem;
+      color: #92400e;
+      font-weight: 500;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .guidance-notice svg {
+      flex-shrink: 0;
+      margin-top: 2px;
+      color: var(--warning);
+    }
+
+    /* Step Header */
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .step-badge {
+      background: var(--primary);
+      color: #ffffff;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 9999px;
+      letter-spacing: 0.04em;
+    }
+
+    .step-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .step-desc {
+      font-size: 0.85rem;
+      color: var(--text-sub);
+      margin-bottom: 14px;
+    }
+
+    /* Form Controls */
+    .select-wrapper {
+      position: relative;
+    }
+
+    select.form-select {
+      width: 100%;
+      appearance: none;
+      background-color: #ffffff;
+      border: 1.5px solid #cbd5e1;
+      border-radius: var(--radius-md);
+      padding: 13px 40px 13px 14px;
+      font-size: 1rem;
+      font-family: inherit;
+      font-weight: 500;
+      color: var(--text-main);
+      cursor: pointer;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    select.form-select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+    }
+
+    select.form-select:disabled {
+      background-color: #f1f5f9;
+      color: var(--text-muted);
+      cursor: not-allowed;
+    }
+
+    .select-arrow {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+      color: var(--text-sub);
+    }
+
+    .api-status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: var(--text-sub);
+    }
+
+    .btn-reload {
+      background: none;
+      border: none;
+      color: var(--primary);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .btn-reload:hover {
+      background: var(--primary-light);
+    }
+
+    .already-submitted-alert {
+      display: none;
+      margin-top: 12px;
+      background: var(--warning-bg);
+      border: 1.5px solid var(--warning);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      font-size: 0.85rem;
+      color: #92400e;
+      font-weight: 600;
+      line-height: 1.5;
+    }
+
+    .already-submitted-alert.active {
+      display: block;
+    }
+
+    /* Locked Card State */
+    .card.is-locked {
+      opacity: 0.55;
+      background: #f8fafc;
+    }
+
+    .lock-banner {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-sub);
+      background: #e2e8f0;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 12px;
+    }
+
+    .card.is-locked .lock-banner {
+      display: inline-flex;
+    }
+
+    /* Dropzone */
+    .dropzone {
+      border: 2px dashed #cbd5e1;
+      border-radius: var(--radius-md);
+      background: #f8fafc;
+      padding: 32px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+
+    .dropzone:hover:not(.disabled),
+    .dropzone.dragover:not(.disabled) {
+      border-color: var(--primary);
+      background: var(--primary-light);
+    }
+
+    .dropzone.disabled {
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    .dropzone-icon {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 12px;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .dropzone-main-text {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-bottom: 4px;
+    }
+
+    .dropzone-sub-text {
+      font-size: 0.8rem;
+      color: var(--text-sub);
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    /* Preview Area */
+    .preview-container {
+      display: none;
+      margin-top: 20px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      background: #ffffff;
+    }
+
+    .preview-container.active {
+      display: block;
+    }
+
+    .preview-layout {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    @media (max-width: 480px) {
+      .preview-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .thumbnail-box {
+      width: 100%;
+      aspect-ratio: 1 / 1.4142;
+      background: #0f172a;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border);
+      max-width: 160px;
+      margin: 0 auto;
+    }
+
+    .thumbnail-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .meta-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #f8fafc;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      font-size: 0.875rem;
+    }
+
+    .meta-label {
+      color: var(--text-sub);
+      font-weight: 500;
+    }
+
+    .meta-val-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+    }
+
+    .status-pill {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 9999px;
+    }
+
+    .status-pill.ok {
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid var(--success-border);
+    }
+
+    .status-pill.ng {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 1px solid var(--danger-border);
+    }
+
+    .status-pill.info {
+      background: #f1f5f9;
+      color: var(--text-sub);
+      border: 1px solid #cbd5e1;
+    }
+
+    /* Validation Error Box */
+    .error-box {
+      display: none;
+      margin-top: 16px;
+      background: var(--danger-bg);
+      border: 2px solid var(--danger);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      color: #991b1b;
+    }
+
+    .error-box.active {
+      display: block;
+    }
+
+    .error-box-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 0.925rem;
+      color: var(--danger);
+      margin-bottom: 6px;
+    }
+
+    .error-list {
+      padding-left: 22px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .valid-box {
+      display: none;
+      margin-top: 16px;
+      background: var(--success-bg);
+      border: 1.5px solid var(--success-border);
+      border-radius: var(--radius-md);
+      padding: 12px 16px;
+      color: #166534;
+      font-size: 0.875rem;
+      font-weight: 600;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .valid-box.active {
+      display: flex;
+    }
+
+    /* Checkboxes */
+    .check-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .check-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+      background: #ffffff;
+    }
+
+    .check-item:hover {
+      border-color: #cbd5e1;
+      background: #f8fafc;
+    }
+
+    .check-item.checked {
+      border-color: var(--primary);
+      background: var(--primary-light);
+    }
+
+    .check-item input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      accent-color: var(--primary);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .check-label {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .option-divider {
+      margin: 18px 0 12px;
+      border-top: 1px dashed var(--border);
+      padding-top: 14px;
+    }
+
+    .option-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--text-sub);
+      margin-bottom: 8px;
+      display: inline-block;
+    }
+
+    .check-item.optional.checked {
+      border-color: var(--warning);
+      background: var(--warning-bg);
+    }
+
+    .check-item.optional input[type="checkbox"] {
+      accent-color: var(--warning);
+    }
+
+    /* Submit Button */
+    .submit-btn {
+      width: 100%;
+      margin-top: 20px;
+      background: var(--primary);
+      color: #ffffff;
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 16px 24px;
+      font-size: 1.05rem;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+      transition: all 0.2s ease;
+    }
+
+    .submit-btn:hover:not(:disabled) {
+      background: var(--primary-hover);
+      transform: translateY(-1px);
+    }
+
+    .submit-btn:disabled {
+      background: #cbd5e1;
+      color: #64748b;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
+    /* Modal / Overlay */
+    .overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(3px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .overlay.active {
+      display: flex;
+    }
+
+    .modal-card {
+      background: #ffffff;
+      border-radius: var(--radius-lg);
+      max-width: 440px;
+      width: 100%;
+      padding: 28px 24px;
+      text-align: center;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15);
+    }
+
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 4px solid var(--primary-light);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .result-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+    }
+
+    .result-icon.success {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+
+    .result-icon.error {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+
+    .result-details {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      margin: 16px 0;
+      text-align: left;
+      font-size: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .modal-close-btn {
+      width: 100%;
+      background: var(--text-main);
+      color: #ffffff;
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 12px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="site-header">
+    <span class="badge" id="headerBadge">JIDORIKYOU EXHIBITION</span>
+    <h1 id="headerTitle">自撮り狂 作品データ入稿システム</h1>
+    <p id="headerSub">出展作品のJPEGデータ入稿フォーム</p>
+  </header>
+
+  <main class="container">
+    <!-- イベント未指定アクセス時のみ表示される会場選択カード -->
+    <section class="card event-selector-card" id="eventSelectorCard">
+      <div class="step-header">
+        <span class="step-badge">EVENT</span>
+        <h2 class="step-title">入稿するイベント（会場）を選択してください</h2>
+      </div>
+      <p class="step-desc">参加される会場のボタンをクリックすると、専用入稿ページが開きます。</p>
+      <div class="event-link-list" id="eventLinkList"></div>
+    </section>
+
+    <div id="mainFormWrapper">
+      <!-- 出展・入稿ガイダンス -->
+      <section class="card guidance-card" aria-label="出展・入稿ガイダンス">
+        <h2 class="guidance-title">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary);">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+          出展・入稿ガイダンス
+        </h2>
+
+        <div class="guidance-grid">
+          <div class="guidance-item">
+            <span class="guidance-label">入稿枚数</span>
+            <span class="guidance-value">1人 <span class="highlight">1枚のみ</span></span>
+          </div>
+          <div class="guidance-item">
+            <span class="guidance-label">データ形式</span>
+            <span class="guidance-value"><span class="highlight">JPEG</span>（.jpg / .jpeg）のみ</span>
+          </div>
+          <div class="guidance-item">
+            <span class="guidance-label">データ容量（圧縮データ防止）</span>
+            <span class="guidance-value"><span class="highlight">3.0 MB以上</span> 必須</span>
+          </div>
+          <div class="guidance-item">
+            <span class="guidance-label">構図</span>
+            <span class="guidance-value"><span class="highlight">A3 縦構図</span>（横・正方形は不可）</span>
+          </div>
+        </div>
+
+        <div class="guidance-notice">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <div>
+            A3比率（<strong>1 : 1.4142</strong>）でトリミングして入稿してください。そうでなければ運営側でトリミングします。
+          </div>
+        </div>
+      </section>
+
+      <form id="submissionForm" novalidate>
+        <!-- STEP 1: 出展者名の選択 -->
+        <section class="card" id="step1Card">
+          <div class="step-header">
+            <span class="step-badge">STEP 1</span>
+            <h2 class="step-title">出展者名の選択</h2>
+          </div>
+          <p class="step-desc">入信届で登録したあなたの出展者名（アカウント名）を選択してください。</p>
+
+          <div class="select-wrapper">
+            <select id="exhibitorSelect" class="form-select" disabled required>
+              <option value="">出展者リストを読み込み中...</option>
+            </select>
+            <div class="select-arrow">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+          </div>
+
+          <div class="api-status-bar">
+            <span id="exhibitorStatusText">スプレッドシートから名簿を取得しています...</span>
+            <button type="button" class="btn-reload" id="reloadExhibitorsBtn" title="名簿を再取得">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+              再読み込み
+            </button>
+          </div>
+
+          <!-- すでに入稿済みの場合の注意バナー -->
+          <div class="already-submitted-alert" id="alreadySubmittedAlert"></div>
+        </section>
+
+        <!-- STEP 2: 写真データの選択 -->
+        <section class="card is-locked" id="step2Card">
+          <div class="lock-banner">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            先に STEP 1 で出展者名を選択してください
+          </div>
+
+          <div class="step-header">
+            <span class="step-badge">STEP 2</span>
+            <h2 class="step-title">写真データの選択（1枚のみ）</h2>
+          </div>
+          <p class="step-desc">ファイル名は入稿時に自動で「{アカウント名}.jpg」へリネームされて保存されます。</p>
+
+          <div class="dropzone disabled" id="dropzone" role="button" tabindex="0" aria-label="写真ファイルを選択">
+            <div class="dropzone-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+            </div>
+            <p class="dropzone-main-text">クリックして写真を選択、またはドラッグ＆ドロップ</p>
+            <p class="dropzone-sub-text">JPEG形式（.jpg / .jpeg）・3.00 MB以上・縦構図</p>
+            <input type="file" id="fileInput" accept=".jpg,.jpeg,image/jpeg" disabled />
+          </div>
+
+          <!-- プレビュー表示 -->
+          <div class="preview-container" id="previewContainer">
+            <div class="preview-layout">
+              <div class="thumbnail-box">
+                <img id="previewImage" alt="選択された作品のプレビュー" />
+              </div>
+              <div class="meta-list">
+                <div class="meta-row">
+                  <span class="meta-label">保存ファイル名</span>
+                  <span class="meta-val-group" id="metaFileName" style="color: var(--primary);">-</span>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-label">データ形式</span>
+                  <div class="meta-val-group">
+                    <span id="metaFormat">-</span>
+                    <span class="status-pill" id="badgeFormat">-</span>
+                  </div>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-label">データ容量</span>
+                  <div class="meta-val-group">
+                    <span id="metaSize">-</span>
+                    <span class="status-pill" id="badgeSize">-</span>
+                  </div>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-label">解像度（横×縦）</span>
+                  <div class="meta-val-group">
+                    <span id="metaResolution">-</span>
+                    <span class="status-pill" id="badgeOrientation">-</span>
+                  </div>
+                </div>
+                <div class="meta-row">
+                  <span class="meta-label">縦横比（目安 1:1.414）</span>
+                  <div class="meta-val-group">
+                    <span id="metaRatio">-</span>
+                    <span class="status-pill info" id="badgeRatio">参考</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 自動エラー判定メッセージ -->
+            <div class="error-box" id="validationErrorBox" role="alert">
+              <div class="error-box-header">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="15" y1="9" x2="9" y2="15"></line>
+                  <line x1="9" y1="9" x2="15" y2="15"></line>
+                </svg>
+                入稿基準を満たしていないため入稿できません
+              </div>
+              <ul class="error-list" id="validationErrorList"></ul>
+            </div>
+
+            <!-- 合格メッセージ -->
+            <div class="valid-box" id="validationSuccessBox">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+              </svg>
+              すべての自動チェック項目（JPEG・3.00MB以上・縦構図）をクリアしています！
+            </div>
+          </div>
+        </section>
+
+        <!-- STEP 3: 入稿前の確認チェックボックス -->
+        <section class="card" id="step3Card">
+          <div class="step-header">
+            <span class="step-badge">STEP 3</span>
+            <h2 class="step-title">入稿前の最終確認</h2>
+          </div>
+          <p class="step-desc">以下の3項目すべてをご確認のうえ、チェックを入れてください。</p>
+
+          <div class="check-group">
+            <label class="check-item" id="labelCheck1">
+              <input type="checkbox" class="req-check" id="checkSize" />
+              <span class="check-label">3MB以上</span>
+            </label>
+            <label class="check-item" id="labelCheck2">
+              <input type="checkbox" class="req-check" id="checkVertical" />
+              <span class="check-label">縦構図</span>
+            </label>
+            <label class="check-item" id="labelCheck3">
+              <input type="checkbox" class="req-check" id="checkA3" />
+              <span class="check-label">A3の比率になってますか？</span>
+            </label>
+          </div>
+
+          <!-- オプション -->
+          <div class="option-divider">
+            <span class="option-title">【オプション（差し替え・再入稿の場合）】</span>
+            <label class="check-item optional" id="labelResubmit">
+              <input type="checkbox" id="checkResubmit" />
+              <span class="check-label">差し替え（再入稿）データとして提出する</span>
+            </label>
+          </div>
+
+          <button type="submit" class="submit-btn" id="submitBtn" disabled>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+            入稿する
+          </button>
+        </section>
+      </form>
+    </div>
+  </main>
+
+  <!-- 送信中・完了モーダル -->
+  <div class="overlay" id="modalOverlay" aria-live="polite">
+    <div class="modal-card" id="modalContent"></div>
+  </div>
+
+  <script>
+    /**
+     * ============================================================
+     * 設定: Google Apps Script (GAS) ウェブアプリのデプロイURL
+     * ============================================================
+     */
+    const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwrVbifJEbAWOCl6Ea7PBC_US9M76BuIckBkjrRD4zzwfSdxHmsRH4zH0iGWDQIgUrA/exec';
+
+    // 厳格バリデーション定数（3.00 MB = 3 * 1024 * 1024 bytes）
+    const MIN_SIZE_MB = 3.00;
+    const BYTES_PER_MB = 1024 * 1024;
+
+    // URLパラメータ (?event=2027osaka 等) を取得
+    const urlParams = new URLSearchParams(window.location.search);
+    const currentEventId = (urlParams.get('event') || '').trim();
+
+    // 状態管理
+    const state = {
+      eventId: currentEventId,
+      eventName: '',
+      selectedExhibitor: '',
+      submittedSet: new Set(),
+      file: null,
+      base64Data: '',
+      sizeMB: 0,
+      width: 0,
+      height: 0,
+      isFileValid: false,
+      isSubmitting: false
+    };
+
+    // DOM要素の取得
+    const eventSelectorCard = document.getElementById('eventSelectorCard');
+    const eventLinkList = document.getElementById('eventLinkList');
+    const mainFormWrapper = document.getElementById('mainFormWrapper');
+    const headerTitle = document.getElementById('headerTitle');
+    const exhibitorSelect = document.getElementById('exhibitorSelect');
+    const exhibitorStatusText = document.getElementById('exhibitorStatusText');
+    const reloadExhibitorsBtn = document.getElementById('reloadExhibitorsBtn');
+    const alreadySubmittedAlert = document.getElementById('alreadySubmittedAlert');
+    const step2Card = document.getElementById('step2Card');
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const previewContainer = document.getElementById('previewContainer');
+    const previewImage = document.getElementById('previewImage');
+    const metaFileName = document.getElementById('metaFileName');
+    const metaFormat = document.getElementById('metaFormat');
+    const metaSize = document.getElementById('metaSize');
+    const metaResolution = document.getElementById('metaResolution');
+    const metaRatio = document.getElementById('metaRatio');
+    const badgeFormat = document.getElementById('badgeFormat');
+    const badgeSize = document.getElementById('badgeSize');
+    const badgeOrientation = document.getElementById('badgeOrientation');
+    const validationErrorBox = document.getElementById('validationErrorBox');
+    const validationErrorList = document.getElementById('validationErrorList');
+    const validationSuccessBox = document.getElementById('validationSuccessBox');
+    const reqChecks = document.querySelectorAll('.req-check');
+    const checkResubmit = document.getElementById('checkResubmit');
+    const submitBtn = document.getElementById('submitBtn');
+    const submissionForm = document.getElementById('submissionForm');
+    const modalOverlay = document.getElementById('modalOverlay');
+    const modalContent = document.getElementById('modalContent');
+
+    document.addEventListener('DOMContentLoaded', () => {
+      fetchExhibitors();
+      setupEventListeners();
+    });
+
+    /**
+     * GASのdoGetからイベント情報・出展者名リスト（五十音順）・入稿済みリストを取得
+     */
+    async function fetchExhibitors() {
+      exhibitorSelect.disabled = true;
+      exhibitorSelect.innerHTML = '<option value="">出展者リストを読み込み中...</option>';
+      exhibitorStatusText.textContent = 'スプレッドシートから名簿を取得しています...';
+      exhibitorStatusText.style.color = 'var(--text-sub)';
+      alreadySubmittedAlert.classList.remove('active');
+
+      try {
+        const endpoint = state.eventId
+          ? `${GAS_API_URL}?event=${encodeURIComponent(state.eventId)}`
+          : GAS_API_URL;
+
+        const response = await fetch(endpoint, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTPエラー: ${response.status}`);
+        }
+
+        const result = await response.json();
+
+        // イベント未指定（?event= なし）でアクセスされた場合は会場選択ボタンを表示
+        if (result.needsEventSelection && Array.isArray(result.events)) {
+          renderEventSelectionList(result.events);
+          return;
+        }
+
+        if (!result.success || !Array.isArray(result.exhibitors)) {
+          throw new Error(result.message || '名簿データの形式が不正です。');
+        }
+
+        eventSelectorCard.classList.remove('active');
+        mainFormWrapper.style.display = 'block';
+
+        if (result.eventId) {
+          state.eventId = result.eventId;
+        }
+        if (result.eventName) {
+          state.eventName = result.eventName;
+        }
+        if (result.pageTitle) {
+          document.title = result.pageTitle;
+          headerTitle.textContent = result.pageTitle;
+        }
+
+        state.submittedSet = new Set(Array.isArray(result.submittedExhibitors) ? result.submittedExhibitors : []);
+
+        const sortedNames = [...result.exhibitors].sort((a, b) => a.localeCompare(b, 'ja'));
+
+        exhibitorSelect.innerHTML = '<option value="">▼ 出展者名（アカウント名）を選択してください</option>';
+        sortedNames.forEach((name) => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          const isDone = state.submittedSet.has(name);
+          opt.textContent = isDone ? `${name}（入稿済）` : name;
+          exhibitorSelect.appendChild(opt);
+        });
+
+        exhibitorSelect.disabled = false;
+        exhibitorStatusText.textContent = `${state.eventName || ''} 出展者名簿を取得しました（全 ${sortedNames.length} 名）`;
+        exhibitorStatusText.style.color = 'var(--success)';
+      } catch (err) {
+        console.error('出展者リスト取得エラー:', err);
+        exhibitorSelect.innerHTML = '<option value="">読み込みに失敗しました（再読み込みしてください）</option>';
+        exhibitorStatusText.textContent = `名簿の取得に失敗しました: ${err.message}`;
+        exhibitorStatusText.style.color = 'var(--danger)';
+      }
+    }
+
+    /**
+     * ?event= パラメータなしでアクセスされた場合の会場一覧表示
+     */
+    function renderEventSelectionList(events) {
+      mainFormWrapper.style.display = 'none';
+      eventLinkList.innerHTML = '';
+      events.forEach((ev) => {
+        const a = document.createElement('a');
+        a.className = 'event-link-btn';
+        a.href = `?event=${encodeURIComponent(ev.eventId)}`;
+        a.innerHTML = `
+          <span>${escapeHtml(ev.eventName)} 入稿ページ</span>
+          <span>→</span>
+        `;
+        eventLinkList.appendChild(a);
+      });
+      eventSelectorCard.classList.add('active');
+    }
+
+    function setupEventListeners() {
+      reloadExhibitorsBtn.addEventListener('click', () => {
+        state.selectedExhibitor = '';
+        updateStep2LockState();
+        updateAlreadySubmittedBanner();
+        updateSubmitButtonState();
+        fetchExhibitors();
+      });
+
+      exhibitorSelect.addEventListener('change', (e) => {
+        state.selectedExhibitor = e.target.value.trim();
+        if (state.selectedExhibitor && state.file) {
+          metaFileName.textContent = `${state.selectedExhibitor}.jpg`;
+        }
+        updateStep2LockState();
+        updateAlreadySubmittedBanner();
+        updateSubmitButtonState();
+      });
+
+      dropzone.addEventListener('click', () => {
+        if (!state.selectedExhibitor) return;
+        fileInput.click();
+      });
+
+      dropzone.addEventListener('keydown', (e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && state.selectedExhibitor) {
+          e.preventDefault();
+          fileInput.click();
+        }
+      });
+
+      dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (!state.selectedExhibitor) return;
+        dropzone.classList.add('dragover');
+      });
+
+      dropzone.addEventListener('dragleave', () => {
+        dropzone.classList.remove('dragover');
+      });
+
+      dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        if (!state.selectedExhibitor) return;
+
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+          handleFileSelection(files[0]);
+        }
+      });
+
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+          handleFileSelection(e.target.files[0]);
+        }
+      });
+
+      reqChecks.forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+          checkbox.closest('.check-item').classList.toggle('checked', checkbox.checked);
+          updateSubmitButtonState();
+        });
+      });
+
+      checkResubmit.addEventListener('change', () => {
+        checkResubmit.closest('.check-item').classList.toggle('checked', checkResubmit.checked);
+        updateSubmitButtonState();
+      });
+
+      submissionForm.addEventListener('submit', handleFormSubmit);
+    }
+
+    function updateStep2LockState() {
+      const isUnlocked = Boolean(state.selectedExhibitor);
+      step2Card.classList.toggle('is-locked', !isUnlocked);
+      dropzone.classList.toggle('disabled', !isUnlocked);
+      fileInput.disabled = !isUnlocked;
+    }
+
+    function updateAlreadySubmittedBanner() {
+      const name = state.selectedExhibitor;
+      if (name && state.submittedSet.has(name)) {
+        alreadySubmittedAlert.innerHTML =
+          `⚠️ <strong>「${escapeHtml(name)}」さんはすでに入稿済みです。</strong><br>` +
+          `ご本人がデータを差し替える場合は、STEP 3 の<strong>「□ 差し替え（再入稿）データとして提出する」</strong>にチェックを入れてください。（※他の方の名前を誤って選んでいないかご確認ください）`;
+        alreadySubmittedAlert.classList.add('active');
+      } else {
+        alreadySubmittedAlert.classList.remove('active');
+      }
+    }
+
+    function handleFileSelection(file) {
+      state.file = file;
+      state.base64Data = '';
+      state.isFileValid = false;
+      updateSubmitButtonState();
+
+      const fileName = file.name || '';
+      const hasJpegExt = /\.(jpe?g)$/i.test(fileName);
+      const hasJpegMime = file.type === 'image/jpeg';
+      const isJpeg = hasJpegExt && hasJpegMime;
+
+      const sizeMB = file.size / BYTES_PER_MB;
+      const sizeMBFormatted = sizeMB.toFixed(2);
+      const isSizeOk = sizeMB >= MIN_SIZE_MB;
+
+      state.sizeMB = Number(sizeMBFormatted);
+
+      metaFileName.textContent = state.selectedExhibitor ? `${state.selectedExhibitor}.jpg` : fileName;
+      metaFormat.textContent = isJpeg ? 'JPEG' : (file.type || '不明な形式');
+      setBadge(badgeFormat, isJpeg, isJpeg ? 'OK' : 'NG');
+
+      metaSize.textContent = `${sizeMBFormatted} MB`;
+      setBadge(badgeSize, isSizeOk, isSizeOk ? 'OK' : '3.00MB未満');
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target.result;
+        const base64Clean = String(dataUrl).replace(/^data:[^;]+;base64,/, '');
+        state.base64Data = base64Clean;
+
+        const img = new Image();
+        img.onload = () => {
+          const width = img.naturalWidth || img.width;
+          const height = img.naturalHeight || img.height;
+          state.width = width;
+          state.height = height;
+
+          const isVertical = width < height;
+
+          previewImage.src = dataUrl;
+          metaResolution.textContent = `${width} × ${height} px`;
+          setBadge(badgeOrientation, isVertical, isVertical ? '縦構図 OK' : 'NG（横/正方形）');
+
+          const ratio = width > 0 ? (height / width).toFixed(4) : '-';
+          metaRatio.textContent = `1 : ${ratio}`;
+
+          const errors = [];
+          if (!isJpeg) {
+            errors.push('データ形式がJPEG（.jpg / .jpeg）ではありません。');
+          }
+          if (!isSizeOk) {
+            errors.push(`データ容量が 3.00 MB未満です（現在: ${sizeMBFormatted} MB）。圧縮されていない元データを選択してください。`);
+          }
+          if (!isVertical) {
+            errors.push(`縦構図ではありません（現在: 横 ${width}px × 縦 ${height}px）。A3縦構図の写真を選択してください。`);
+          }
+
+          renderValidationResult(errors);
+        };
+
+        img.onerror = () => {
+          previewImage.removeAttribute('src');
+          metaResolution.textContent = '取得不可';
+          setBadge(badgeOrientation, false, 'NG');
+          metaRatio.textContent = '-';
+
+          const errors = ['画像ファイルとして読み込めませんでした。破損していないJPEG画像を選択してください。'];
+          if (!isJpeg) errors.unshift('データ形式がJPEG（.jpg / .jpeg）ではありません。');
+          if (!isSizeOk) errors.push(`データ容量が 3.00 MB未満です（現在: ${sizeMBFormatted} MB）。`);
+          renderValidationResult(errors);
+        };
+
+        img.src = dataUrl;
+      };
+
+      reader.readAsDataURL(file);
+    }
+
+    function setBadge(el, isOk, text) {
+      el.textContent = text;
+      el.className = `status-pill ${isOk ? 'ok' : 'ng'}`;
+    }
+
+    function renderValidationResult(errors) {
+      previewContainer.classList.add('active');
+
+      if (errors.length > 0) {
+        state.isFileValid = false;
+        validationSuccessBox.classList.remove('active');
+        validationErrorList.innerHTML = '';
+        errors.forEach((msg) => {
+          const li = document.createElement('li');
+          li.textContent = msg;
+          validationErrorList.appendChild(li);
+        });
+        validationErrorBox.classList.add('active');
+      } else {
+        state.isFileValid = true;
+        validationErrorBox.classList.remove('active');
+        validationSuccessBox.classList.add('active');
+      }
+
+      updateSubmitButtonState();
+    }
+
+    function updateSubmitButtonState() {
+      const allChecked = Array.from(reqChecks).every((cb) => cb.checked);
+      const isAlreadySubmitted = state.selectedExhibitor && state.submittedSet.has(state.selectedExhibitor);
+      const resubmitSatisfied = !isAlreadySubmitted || checkResubmit.checked;
+
+      const canSubmit =
+        Boolean(state.eventId) &&
+        Boolean(state.selectedExhibitor) &&
+        Boolean(state.file) &&
+        Boolean(state.base64Data) &&
+        state.isFileValid &&
+        allChecked &&
+        resubmitSatisfied &&
+        !state.isSubmitting;
+
+      submitBtn.disabled = !canSubmit;
+    }
+
+    async function handleFormSubmit(e) {
+      e.preventDefault();
+      if (submitBtn.disabled || state.isSubmitting) return;
+
+      state.isSubmitting = true;
+      updateSubmitButtonState();
+      showLoadingModal();
+
+      const payload = {
+        eventId: state.eventId,
+        exhibitorName: state.selectedExhibitor,
+        base64Data: state.base64Data,
+        mimeType: state.file.type,
+        originalFileName: state.file.name,
+        fileSizeBytes: state.file.size,
+        fileSizeMB: state.sizeMB,
+        width: state.width,
+        height: state.height,
+        isResubmit: checkResubmit.checked
+      };
+
+      try {
+        const response = await fetch(GAS_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          throw new Error(`通信エラーが発生しました（HTTP ${response.status}）`);
+        }
+
+        const result = await response.json();
+        if (!result.success) {
+          throw new Error(result.message || 'サーバー側で入稿エラーが発生しました。');
+        }
+
+        state.submittedSet.add(state.selectedExhibitor);
+        showResultModal(true, result);
+        resetFormAfterSuccess();
+        fetchExhibitors();
+      } catch (err) {
+        console.error('入稿送信エラー:', err);
+        showResultModal(false, { message: err.message });
+      } finally {
+        state.isSubmitting = false;
+        updateSubmitButtonState();
+      }
+    }
+
+    function showLoadingModal() {
+      modalContent.innerHTML = `
+        <div class="spinner"></div>
+        <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 6px;">作品データを入稿中です...</h3>
+        <p style="font-size: 0.85rem; color: var(--text-sub);">
+          高画質データのアップロードには数十秒かかる場合があります。<br>画面を閉じずにお待ちください。
+        </p>
+      `;
+      modalOverlay.classList.add('active');
+    }
+
+    function showResultModal(isSuccess, data) {
+      if (isSuccess) {
+        modalContent.innerHTML = `
+          <div class="result-icon success">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </div>
+          <h3 style="font-size: 1.2rem; font-weight: 700;">入稿が完了しました！</h3>
+          <p style="font-size: 0.875rem; color: var(--text-sub); margin-top: 4px;">
+            Googleドライブへの保存と入稿ログへの記録が完了しました。
+          </p>
+          <div class="result-details">
+            <div><strong>対象イベント：</strong>${escapeHtml(data.eventName || state.eventName)}</div>
+            <div><strong>出展者名：</strong>${escapeHtml(data.exhibitorName || state.selectedExhibitor)}</div>
+            <div><strong>受付区分：</strong>${escapeHtml(data.submissionType || '-')}</div>
+            <div><strong>保存ファイル名：</strong>${escapeHtml(data.savedFileName || '-')}</div>
+            <div><strong>記録日時：</strong>${escapeHtml(data.timestamp || '-')}</div>
+          </div>
+          <button type="button" class="modal-close-btn" onclick="closeModal()">閉じる</button>
+        `;
+      } else {
+        modalContent.innerHTML = `
+          <div class="result-icon error">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </div>
+          <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--danger);">入稿に失敗しました</h3>
+          <p style="font-size: 0.9rem; color: var(--text-main); margin: 12px 0;">
+            ${escapeHtml(data.message || '不明なエラーが発生しました。')}
+          </p>
+          <button type="button" class="modal-close-btn" onclick="closeModal()">戻って確認する</button>
+        `;
+      }
+      modalOverlay.classList.add('active');
+    }
+
+    function closeModal() {
+      modalOverlay.classList.remove('active');
+    }
+
+    function resetFormAfterSuccess() {
+      state.selectedExhibitor = '';
+      state.file = null;
+      state.base64Data = '';
+      state.isFileValid = false;
+      fileInput.value = '';
+      previewContainer.classList.remove('active');
+      alreadySubmittedAlert.classList.remove('active');
+      reqChecks.forEach((cb) => {
+        cb.checked = false;
+        cb.closest('.check-item').classList.remove('checked');
+      });
+      checkResubmit.checked = false;
+      checkResubmit.closest('.check-item').classList.remove('checked');
+      updateStep2LockState();
+      updateSubmitButtonState();
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+  </script>
+</body>
+</html>
