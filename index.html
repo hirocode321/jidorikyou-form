@@ -1112,6 +1112,7 @@
 
         const response = await fetch(endpoint, {
           method: 'GET',
+          credentials: 'omit',
           headers: { 'Accept': 'application/json' }
         });
 
@@ -1438,6 +1439,7 @@
       try {
         const response = await fetch(GAS_API_URL, {
           method: 'POST',
+          credentials: 'omit',
           headers: {
             'Content-Type': 'text/plain;charset=utf-8'
           },
