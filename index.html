@@ -1450,7 +1450,7 @@
     function updateAccountCheckLabel(resetCheck = false) {
       const hasExhibitor = Boolean(state.selectedExhibitor);
       if (hasExhibitor) {
-        checkAccountLabel.textContent = `${state.selectedExhibitor}で間違いないですか？`;
+        checkAccountLabel.textContent = `${state.selectedExhibitor}さんで間違いないですか？`;
         if (checkAccount) checkAccount.disabled = false;
         if (labelCheckAccount) labelCheckAccount.classList.remove('disabled');
       } else {
