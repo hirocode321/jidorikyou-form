@@ -596,6 +596,26 @@
       background: var(--primary-light);
     }
 
+    .check-item.disabled {
+      background: #f8fafc;
+      border-color: var(--border);
+      cursor: not-allowed;
+      opacity: 0.65;
+    }
+
+    .check-item.disabled:hover {
+      border-color: var(--border);
+      background: #f8fafc;
+    }
+
+    .check-item.disabled .check-label {
+      color: var(--text-muted);
+    }
+
+    .check-item.disabled input[type="checkbox"] {
+      cursor: not-allowed;
+    }
+
     .check-item input[type="checkbox"] {
       width: 20px;
       height: 20px;
@@ -985,9 +1005,9 @@
           <p class="step-desc">以下の4項目すべてをご確認のうえ、チェックを入れてください。</p>
 
           <div class="check-group">
-            <label class="check-item" id="labelCheckAccount">
-              <input type="checkbox" class="req-check" id="checkAccount" />
-              <span class="check-label" id="checkAccountLabel">｛アカウント名｝で間違いないですか？</span>
+            <label class="check-item disabled" id="labelCheckAccount">
+              <input type="checkbox" class="req-check" id="checkAccount" disabled />
+              <span class="check-label" id="checkAccountLabel">STEP 1で出展者名を選択してください</span>
             </label>
             <label class="check-item" id="labelCheck1">
               <input type="checkbox" class="req-check" id="checkSize" />
@@ -1095,6 +1115,7 @@
     const validationErrorList = document.getElementById('validationErrorList');
     const validationSuccessBox = document.getElementById('validationSuccessBox');
     const reqChecks = document.querySelectorAll('.req-check');
+    const labelCheckAccount = document.getElementById('labelCheckAccount');
     const checkAccount = document.getElementById('checkAccount');
     const checkAccountLabel = document.getElementById('checkAccountLabel');
     const checkResubmit = document.getElementById('checkResubmit');
@@ -1421,11 +1442,19 @@
     }
 
     function updateAccountCheckLabel(resetCheck = false) {
-      const displayName = state.selectedExhibitor || '｛アカウント名｝';
-      checkAccountLabel.textContent = `${displayName}で間違いないですか？`;
+      const hasExhibitor = Boolean(state.selectedExhibitor);
+      if (hasExhibitor) {
+        checkAccountLabel.textContent = `${state.selectedExhibitor}で間違いないですか？`;
+        if (checkAccount) checkAccount.disabled = false;
+        if (labelCheckAccount) labelCheckAccount.classList.remove('disabled');
+      } else {
+        checkAccountLabel.textContent = 'STEP 1で出展者名を選択してください';
+        if (checkAccount) checkAccount.disabled = true;
+        if (labelCheckAccount) labelCheckAccount.classList.add('disabled');
+      }
       if (resetCheck && checkAccount) {
         checkAccount.checked = false;
-        checkAccount.closest('.check-item').classList.remove('checked');
+        if (labelCheckAccount) labelCheckAccount.classList.remove('checked');
       }
     }
 
