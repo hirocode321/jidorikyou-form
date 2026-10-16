@@ -54,6 +54,9 @@ const PHOTO_FOLDER_NAME = '写真';
 const QR_FOLDER_NAME = 'QRコード';
 const ARCHIVE_FOLDER_NAME = '_旧データ（差し替え前）';
 
+// 入稿ログシートの見出し
+const LOG_HEADERS = ['日時', '出展者名（アカウント名）', '区分(新規/再入稿)', '保存ファイル名', '容量(MB)', '解像度(px)', 'ドライブURL'];
+
 // バリデーション基準値（3.00 MB = 3 * 1024 * 1024 bytes）
 const MIN_FILE_SIZE_BYTES = 3 * 1024 * 1024;
 // 上限 15 MB（GASの受信上限・Base64膨張・同時入稿時の安定性のため）
@@ -138,7 +141,7 @@ function doGet(e) {
     const token = e && e.parameter && e.parameter.token ? String(e.parameter.token).trim() : '';
     const overwriteFlag = e && e.parameter && e.parameter.overwrite === '1';
 
-    const configInfo = ensureAndLoadAllEvents_();
+    const configInfo = ensureAndLoadAllEvents_({ light: true });
     const events = configInfo.events;
 
     // ============================================================
@@ -249,7 +252,7 @@ function doPost(e) {
       throw new Error(`データ容量エラー：${MAX_FILE_SIZE_MB} MB以下のデータのみ入稿可能です。`);
     }
 
-    const configInfo = ensureAndLoadAllEvents_();
+    const configInfo = ensureAndLoadAllEvents_({ light: true });
     const targetEvent = findEventById_(configInfo.events, requestedEventId);
     if (!targetEvent) {
       throw new Error(`指定されたイベント（${requestedEventId}）が見つかりません。`);
@@ -283,9 +286,18 @@ function doPost(e) {
       throw new Error(`データ容量エラー：${MAX_FILE_SIZE_MB} MB以下のデータのみ入稿可能です（受信サイズ: ${sizeMB} MB）。JPEG書き出し時の画質設定を少し下げてください。`);
     }
 
+    // 解像度はブラウザ表示と同じ基準（EXIFの回転情報を反映した向き）で判定する
     const dimensions = extractJpegDimensions_(decodedBytes);
-    const width = dimensions ? dimensions.width : Number(payload.width || 0);
-    const height = dimensions ? dimensions.height : Number(payload.height || 0);
+    let width = dimensions ? dimensions.width : Number(payload.width || 0);
+    let height = dimensions ? dimensions.height : Number(payload.height || 0);
+    if (dimensions) {
+      const orientation = extractJpegOrientation_(decodedBytes);
+      if (orientation >= 5 && orientation <= 8) {
+        const swap = width;
+        width = height;
+        height = swap;
+      }
+    }
 
     if (!width || !height || width >= height) {
       throw new Error(`構図エラー：縦構図（横px < 縦px）の写真のみ入稿可能です（検出解像度: ${width}×${height} px）。`);
@@ -297,6 +309,9 @@ function doPost(e) {
     const mainFolder = getOrCreateMainFolder_(targetEvent.mainFolderName);
     const photoFolder = getOrCreateSubFolder_(mainFolder, PHOTO_FOLDER_NAME);
     const archiveFolder = getOrCreateSubFolder_(photoFolder, ARCHIVE_FOLDER_NAME);
+
+    // 入稿ログシートの取得・準備もロックの外で済ませる（ロック内は追記のみにして占有時間を短縮）
+    const logSheets = prepareLogSheets_(getOrCreateLogSpreadsheet_(mainFolder, targetEvent.logSpreadsheetName));
 
     // ファイル名に使えない禁止記号を安全な文字に変換
     const safeFileBaseName = sanitizeFileName_(exhibitorName);
@@ -357,20 +372,27 @@ function doPost(e) {
     const logTimestamp = Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
     const resolutionText = `${width}×${height}`;
 
-    recordToLogSpreadsheet_(
-      mainFolder,
-      targetEvent.logSpreadsheetName,
-      validExhibitors,
-      {
-        timestamp: logTimestamp,
-        exhibitorName: exhibitorName,
-        submissionType: submissionType,
-        savedFileName: targetFileName,
-        sizeMB: Number(sizeMB),
-        resolution: resolutionText,
-        fileUrl: fileUrl
-      }
-    );
+    // ファイルは確定済みなので、ログ記録に失敗しても入稿自体は成功として返す
+    // （失敗扱いにすると、出展者の再送が「すでに入稿されています」で詰まるため）
+    let logWarning = '';
+    try {
+      recordToLogSpreadsheet_(
+        logSheets,
+        validExhibitors,
+        {
+          timestamp: logTimestamp,
+          exhibitorName: exhibitorName,
+          submissionType: submissionType,
+          savedFileName: targetFileName,
+          sizeMB: Number(sizeMB),
+          resolution: resolutionText,
+          fileUrl: fileUrl
+        }
+      );
+    } catch (logErr) {
+      logWarning = '入稿ログへの記録に失敗しました: ' + String((logErr && logErr.message) || logErr);
+      console.error(logWarning + ` (出展者: ${exhibitorName} / ${targetFileName})`);
+    }
 
     const successResult = {
       success: true,
@@ -381,7 +403,8 @@ function doPost(e) {
       savedFileName: targetFileName,
       folderName: `${targetEvent.mainFolderName} / ${PHOTO_FOLDER_NAME}`,
       fileUrl: fileUrl,
-      timestamp: logTimestamp
+      timestamp: logTimestamp,
+      logWarning: logWarning
     };
     setCachedResult_(requestId, successResult);
     return createJsonResponse_(successResult);
@@ -433,7 +456,10 @@ function setCachedResult_(requestId, result) {
  * 「⚙️自撮り狂_入稿システム設定」スプレッドシートを準備し、登録されている全イベント情報を読み込む
  * ※既存の行は消さずに、F列（QRコード作成ボタン）とG列（QRコード保存フォルダURL）を自動補完します。
  */
-function ensureAndLoadAllEvents_() {
+function ensureAndLoadAllEvents_(opts) {
+  // light=true：入稿・名簿取得など高頻度のリクエスト用。設定シートの見出し・列幅・数式の書き込みを省いて高速化する
+  // （初回や見出し不一致のときは自動的に通常モードで初期化する）
+  const light = Boolean(opts && opts.light);
   const root = DriveApp.getRootFolder();
   const files = root.getFilesByName(CONFIG_SPREADSHEET_NAME);
   let configSs;
@@ -453,9 +479,12 @@ function ensureAndLoadAllEvents_() {
   }
 
   const sheet = configSs.getSheets()[0];
-  sheet.setName('イベント一覧設定');
+  if (sheet.getName() !== 'イベント一覧設定') {
+    sheet.setName('イベント一覧設定');
+  }
 
   const cellA1 = String(sheet.getRange('A1').getValue() || '').trim();
+  const skipWrites = light && cellA1 === 'イベントID（半角英数）';
   if (cellA1 !== 'イベントID（半角英数）') {
     sheet.clear();
     sheet.getRange('A1:G1').setValues([[
@@ -487,7 +516,7 @@ function ensureAndLoadAllEvents_() {
     if (initRows.length > 0) {
       sheet.getRange(2, 1, initRows.length, 7).setValues(initRows);
     }
-  } else {
+  } else if (!skipWrites) {
     // 既存シートがある場合、見出しを最新化（既存データは保持）
     sheet.getRange('A1:G1').setValues([[
       'イベントID（半角英数）',
@@ -501,13 +530,15 @@ function ensureAndLoadAllEvents_() {
     sheet.getRange('A1:G1').setFontWeight('bold').setBackground('#e0e7ff');
   }
 
-  sheet.setColumnWidth(1, 150);
-  sheet.setColumnWidth(2, 210);
-  sheet.setColumnWidth(3, 380);
-  sheet.setColumnWidth(4, 380);
-  sheet.setColumnWidth(5, 320);
-  sheet.setColumnWidth(6, 260);
-  sheet.setColumnWidth(7, 320);
+  if (!skipWrites) {
+    sheet.setColumnWidth(1, 150);
+    sheet.setColumnWidth(2, 210);
+    sheet.setColumnWidth(3, 380);
+    sheet.setColumnWidth(4, 380);
+    sheet.setColumnWidth(5, 320);
+    sheet.setColumnWidth(6, 260);
+    sheet.setColumnWidth(7, 320);
+  }
 
   const lastRow = sheet.getLastRow();
   const events = [];
@@ -526,26 +557,32 @@ function ensureAndLoadAllEvents_() {
 
       if (!eventId || !rawUrl) continue;
 
-      // D列（LINEオプチャ配布用URL）が空なら自動数式をセット
-      if (!colDVal) {
-        sheet.getRange(rowNumber, 4).setFormula(`="${FRONTEND_BASE_URL}?event=" & A${rowNumber}`);
-      }
+      if (!skipWrites) {
+        // D列（LINEオプチャ配布用URL）が空なら自動数式をセット
+        if (!colDVal) {
+          sheet.getRange(rowNumber, 4).setFormula(`="${FRONTEND_BASE_URL}?event=" & A${rowNumber}`);
+        }
 
-      // F列（🔲 QRコードを一括作成ボタン）をトークン付きGitHub Pages URLに更新
-      const targetFormula = `=HYPERLINK("${FRONTEND_BASE_URL}?admin=qr&event=" & A${rowNumber} & "&token=${adminToken}", "🔲 QRコードを一括作成")`;
-      if (!colFFormula || colFFormula !== targetFormula) {
-        sheet.getRange(rowNumber, 6).setFormula(targetFormula);
+        // F列（🔲 QRコードを一括作成ボタン）をトークン付きGitHub Pages URLに更新
+        const targetFormula = `=HYPERLINK("${FRONTEND_BASE_URL}?admin=qr&event=" & A${rowNumber} & "&token=${adminToken}", "🔲 QRコードを一括作成")`;
+        if (!colFFormula || colFFormula !== targetFormula) {
+          sheet.getRange(rowNumber, 6).setFormula(targetFormula);
+        }
       }
 
       const spreadsheetId = extractSpreadsheetId_(rawUrl);
       if (!spreadsheetId) continue;
 
-      const sourceSpreadsheet = SpreadsheetApp.openById(spreadsheetId);
-      const rawTitle = sourceSpreadsheet.getName();
+      // 入信届スプレッドシートは実際に使うイベントの分だけ開く（遅延オープン）
+      let sourceSs = null;
+      const openSource = function() {
+        if (!sourceSs) sourceSs = SpreadsheetApp.openById(spreadsheetId);
+        return sourceSs;
+      };
 
       let eventName = manualName;
       if (!eventName) {
-        eventName = cleanEventNameFromTitle_(rawTitle);
+        eventName = cleanEventNameFromTitle_(openSource().getName());
         sheet.getRange(rowNumber, 2).setValue(eventName);
       }
 
@@ -553,7 +590,7 @@ function ensureAndLoadAllEvents_() {
         rowNumber: rowNumber,
         eventId: eventId,
         eventName: eventName,
-        sourceSpreadsheet: sourceSpreadsheet,
+        get sourceSpreadsheet() { return openSource(); },
         mainFolderName: `${eventName} 作品データフォルダ`,
         logSpreadsheetName: `${eventName} 入稿ログ`
       });
@@ -1164,25 +1201,29 @@ function getOrCreateLogSpreadsheet_(mainFolder, logSpreadsheetName) {
 }
 
 /**
- * 入稿ログの追記 ＆ 入稿状況一覧シートの最新化
+ * 入稿ログ・入稿状況一覧のシートを取得（なければ作成）。ロックの外で呼び出すこと。
  */
-function recordToLogSpreadsheet_(mainFolder, logSpreadsheetName, allExhibitors, entry) {
-  const logSs = getOrCreateLogSpreadsheet_(mainFolder, logSpreadsheetName);
-
+function prepareLogSheets_(logSs) {
   let logSheet = logSs.getSheetByName('入稿ログ');
   if (!logSheet) {
     logSheet = logSs.insertSheet('入稿ログ');
-    logSheet.appendRow([
-      '日時',
-      '出展者名（アカウント名）',
-      '区分(新規/再入稿)',
-      '保存ファイル名',
-      '容量(MB)',
-      '解像度(px)',
-      'ドライブURL'
-    ]);
+    logSheet.appendRow(LOG_HEADERS);
     logSheet.getRange(1, 1, 1, 7).setFontWeight('bold');
+    logSheet.setFrozenRows(1);
   }
+  let statusSheet = logSs.getSheetByName('入稿状況一覧');
+  if (!statusSheet) {
+    statusSheet = logSs.insertSheet('入稿状況一覧');
+  }
+  return { logSheet: logSheet, statusSheet: statusSheet };
+}
+
+/**
+ * 入稿ログの追記 ＆ 入稿状況一覧の更新（ロック内で呼ばれるため、通常は「1行追記＋1行更新」だけで済ませる）
+ */
+function recordToLogSpreadsheet_(sheets, allExhibitors, entry) {
+  const logSheet = sheets.logSheet;
+  const statusSheet = sheets.statusSheet;
 
   logSheet.appendRow([
     entry.timestamp,
@@ -1194,11 +1235,32 @@ function recordToLogSpreadsheet_(mainFolder, logSpreadsheetName, allExhibitors, 
     entry.fileUrl
   ]);
 
-  let statusSheet = logSs.getSheetByName('入稿状況一覧');
-  if (!statusSheet) {
-    statusSheet = logSs.insertSheet('入稿状況一覧');
-  }
+  // 入稿状況一覧：該当出展者の行だけを更新。行が見つからない・名簿の人数が変わった場合のみ全件再構築。
+  const statusLastRow = statusSheet.getLastRow();
+  const names = statusLastRow >= 2
+    ? statusSheet.getRange(2, 1, statusLastRow - 1, 1).getValues().map(function(r) { return String(r[0] || '').trim(); })
+    : [];
+  const rowIdx = names.indexOf(entry.exhibitorName);
 
+  if (rowIdx >= 0 && names.length === allExhibitors.length) {
+    statusSheet.getRange(rowIdx + 2, 1, 1, 7).setValues([[
+      entry.exhibitorName,
+      `入稿済（${entry.submissionType}）`,
+      entry.timestamp,
+      entry.savedFileName,
+      entry.sizeMB,
+      entry.resolution,
+      entry.fileUrl
+    ]]);
+    return;
+  }
+  rebuildStatusSheet_(logSheet, statusSheet, allExhibitors);
+}
+
+/**
+ * 入稿状況一覧シートを入稿ログから全件再構築する
+ */
+function rebuildStatusSheet_(logSheet, statusSheet, allExhibitors) {
   const logLastRow = logSheet.getLastRow();
   const latestMap = {};
   if (logLastRow >= 2) {
@@ -1219,17 +1281,15 @@ function recordToLogSpreadsheet_(mainFolder, logSpreadsheetName, allExhibitors, 
     }
   }
 
-  const outputRows = [
-    [
-      '出展者名（アカウント名）',
-      '入稿ステータス',
-      '最終入稿日時',
-      '保存ファイル名',
-      '容量(MB)',
-      '解像度(px)',
-      '最新ファイルURL'
-    ]
-  ];
+  const outputRows = [[
+    '出展者名（アカウント名）',
+    '入稿ステータス',
+    '最終入稿日時',
+    '保存ファイル名',
+    '容量(MB)',
+    '解像度(px)',
+    '最新ファイルURL'
+  ]];
 
   for (let i = 0; i < allExhibitors.length; i++) {
     const name = allExhibitors[i];
@@ -1252,6 +1312,83 @@ function recordToLogSpreadsheet_(mainFolder, logSpreadsheetName, allExhibitors, 
   statusSheet.clearContents();
   statusSheet.getRange(1, 1, outputRows.length, 7).setValues(outputRows);
   statusSheet.getRange(1, 1, 1, 7).setFontWeight('bold');
+}
+
+/**
+ * 手動実行用：入稿処理が強制終了した際に残った一時ファイル（__tmp_*.jpg）を1時間経過後にゴミ箱へ移す
+ */
+function cleanupTempFiles() {
+  const configInfo = ensureAndLoadAllEvents_();
+  const threshold = Date.now() - 60 * 60 * 1000;
+  let count = 0;
+  for (let i = 0; i < configInfo.events.length; i++) {
+    const mainFolder = getOrCreateMainFolder_(configInfo.events[i].mainFolderName);
+    const photoFolder = getOrCreateSubFolder_(mainFolder, PHOTO_FOLDER_NAME);
+    const archiveFolder = getOrCreateSubFolder_(photoFolder, ARCHIVE_FOLDER_NAME);
+    const iter = archiveFolder.getFiles();
+    while (iter.hasNext()) {
+      const f = iter.next();
+      if (/^__tmp_/.test(f.getName()) && f.getDateCreated().getTime() < threshold) {
+        f.setTrashed(true);
+        count++;
+      }
+    }
+  }
+  Logger.log(`一時ファイルを ${count} 件ゴミ箱へ移しました。`);
+}
+
+/**
+ * JPEGのEXIF Orientation（1〜8）を取得。なければ 1 を返す
+ * （5〜8 は90度回転が必要＝ブラウザ表示では縦横が入れ替わる）
+ */
+function extractJpegOrientation_(bytes) {
+  const len = bytes.length;
+  let i = 2;
+  while (i < len - 4) {
+    if ((bytes[i] & 0xff) !== 0xff) {
+      i++;
+      continue;
+    }
+    const marker = bytes[i + 1] & 0xff;
+    if (marker === 0xff) {
+      i++;
+      continue;
+    }
+    if (marker === 0xda || marker === 0xd9) break; // 画像データ開始以降にEXIFは無い
+    const segLen = ((bytes[i + 2] & 0xff) << 8) | (bytes[i + 3] & 0xff);
+    if (segLen < 2) break;
+
+    if (marker === 0xe1 && i + 10 < len &&
+        (bytes[i + 4] & 0xff) === 0x45 && (bytes[i + 5] & 0xff) === 0x78 &&
+        (bytes[i + 6] & 0xff) === 0x69 && (bytes[i + 7] & 0xff) === 0x66) { // "Exif"
+      const tiff = i + 10;
+      const little = (bytes[tiff] & 0xff) === 0x49; // "II"=リトルエンディアン / "MM"=ビッグ
+      const read16 = function(pos) {
+        if (pos + 1 >= len) return 0;
+        return little
+          ? ((bytes[pos + 1] & 0xff) << 8) | (bytes[pos] & 0xff)
+          : ((bytes[pos] & 0xff) << 8) | (bytes[pos + 1] & 0xff);
+      };
+      const read32 = function(pos) {
+        return little
+          ? (read16(pos + 2) * 65536) + read16(pos)
+          : (read16(pos) * 65536) + read16(pos + 2);
+      };
+      const ifd0 = tiff + read32(tiff + 4);
+      const entryCount = read16(ifd0);
+      for (let n = 0; n < entryCount && n < 64; n++) {
+        const entry = ifd0 + 2 + n * 12;
+        if (entry + 12 > len) break;
+        if (read16(entry) === 0x0112) {
+          const v = read16(entry + 8);
+          return v >= 1 && v <= 8 ? v : 1;
+        }
+      }
+      return 1;
+    }
+    i += 2 + segLen;
+  }
+  return 1;
 }
 
 /**
