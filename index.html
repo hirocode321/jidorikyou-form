@@ -633,6 +633,25 @@
       accent-color: var(--warning);
     }
 
+    .consult-notice {
+      margin-top: 14px;
+      padding: 12px 14px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--primary);
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      color: var(--text-sub);
+      line-height: 1.6;
+    }
+
+    .consult-notice a {
+      color: var(--primary);
+      font-weight: 700;
+      text-decoration: underline;
+      word-break: break-all;
+    }
+
     /* Submit Button */
     .submit-btn {
       width: 100%;
@@ -978,6 +997,11 @@
               <input type="checkbox" id="checkResubmit" />
               <span class="check-label">差し替え（再入稿）データとして提出する</span>
             </label>
+          </div>
+
+          <div class="consult-notice">
+            スマホ撮影の方や、使ってるカメラの画素数が低くて要件を満たせない場合は<br>
+            <a href="mailto:jidorikyou@gmail.com">jidorikyou@gmail.com</a> までご相談ください
           </div>
 
           <button type="submit" class="submit-btn" id="submitBtn" disabled>
