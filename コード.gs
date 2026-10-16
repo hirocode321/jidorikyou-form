@@ -18,13 +18,11 @@
  *    文字の書き込みやタブ追加は一切行いません。
  * 2. 1行目の見出しから「アカウント名（D列）」「X（E列）」「Instagram（F列）」を自動検出し、
  *    本名・住所・電話番号・メールアドレスの列は絶対に読み込まない安全ロックを搭載しています。
+ * 3. QRコード一括作成機能にはトークン認証（設定シート内で自動管理）を設け、第三者からの不正実行を防止します。
  */
 
 // GitHub Pagesの公開ベースURL（設定シートのD列にLINEオプチャ配布用URLを自動表示するために使用）
 const FRONTEND_BASE_URL = 'https://hirocode321.github.io/jidorikyou-form/';
-
-// GASウェブアプリの公開URL（設定シートのF列に「🔲 QRコードを一括作成」リンクを自動生成するために使用）
-const GAS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwrVbifJEbAWOCl6Ea7PBC_US9M76BuIckBkjrRD4zzwfSdxHmsRH4zH0iGWDQIgUrA/exec';
 
 // マイドライブ直下に作成されるイベント管理・設定ファイル名
 const CONFIG_SPREADSHEET_NAME = '⚙️自撮り狂_入稿システム設定';
@@ -70,6 +68,7 @@ function setup() {
 
   Logger.log('====================================');
   Logger.log('⚙️ イベント設定シートURL: ' + configInfo.configSheetUrl);
+  Logger.log('🔑 管理者トークン: ' + configInfo.adminToken);
   Logger.log('====================================');
 
   for (let i = 0; i < events.length; i++) {
@@ -125,7 +124,7 @@ function generateQrCodes() {
 
 /**
  * APIエンドポイント 1: doGet(e)
- * 1) ?action=generate_qr&event=2027osaka の場合：該当イベントのSNS QRコードを一括生成して完了画面（HTML）を表示
+ * 1) ?action=generate_qr の場合：トークン認証の上、該当イベントのSNS QRコードを一括生成してJSONで結果を返却
  * 2) ?event=2027osaka の場合：フロントエンド用に出展者名簿と入稿状況をJSONで返却
  * 3) パラメータなしの場合：登録されている全イベントの一覧をJSONで返却
  */
@@ -133,15 +132,23 @@ function doGet(e) {
   try {
     const action = e && e.parameter && e.parameter.action ? String(e.parameter.action).trim() : '';
     const requestedEventId = e && e.parameter && e.parameter.event ? String(e.parameter.event).trim() : '';
+    const token = e && e.parameter && e.parameter.token ? String(e.parameter.token).trim() : '';
     const overwriteFlag = e && e.parameter && e.parameter.overwrite === '1';
 
     const configInfo = ensureAndLoadAllEvents_();
     const events = configInfo.events;
 
     // ============================================================
-    // 管理用アクション：設定シートの「🔲 QRコードを一括作成」クリック時
+    // 管理用アクション：QRコード一括作成リクエスト
     // ============================================================
     if (action === 'generate_qr') {
+      // 簡易トークン認証
+      if (!configInfo.adminToken || token !== configInfo.adminToken) {
+        return createJsonResponse_({
+          success: false,
+          message: '認証エラー：無効な管理者トークンです。設定シート内の最新リンクからアクセスしてください。'
+        });
+      }
       return handleQrGenerationRequest_(events, configInfo.sheet, requestedEventId, overwriteFlag);
     }
 
@@ -366,6 +373,14 @@ function ensureAndLoadAllEvents_() {
     configSs = SpreadsheetApp.create(CONFIG_SPREADSHEET_NAME);
   }
 
+  // 管理者トークンの取得・自動生成（ScriptPropertiesを利用して永続化）
+  const props = PropertiesService.getScriptProperties();
+  let adminToken = props.getProperty('ADMIN_TOKEN');
+  if (!adminToken) {
+    adminToken = Utilities.getUuid().replace(/-/g, '').substring(0, 16);
+    props.setProperty('ADMIN_TOKEN', adminToken);
+  }
+
   const sheet = configSs.getSheets()[0];
   sheet.setName('イベント一覧設定');
 
@@ -394,7 +409,7 @@ function ensureAndLoadAllEvents_() {
         item.spreadsheetUrl,
         `="${FRONTEND_BASE_URL}?event=" & A${rowNum}`,
         '',
-        `=HYPERLINK("${FRONTEND_BASE_URL}?admin=qr&event=" & A${rowNum}, "🔲 QRコードを一括作成")`,
+        `=HYPERLINK("${FRONTEND_BASE_URL}?admin=qr&event=" & A${rowNum} & "&token=${adminToken}", "🔲 QRコードを一括作成")`,
         ''
       ]);
     }
@@ -420,7 +435,7 @@ function ensureAndLoadAllEvents_() {
   sheet.setColumnWidth(3, 380);
   sheet.setColumnWidth(4, 380);
   sheet.setColumnWidth(5, 320);
-  sheet.setColumnWidth(6, 240);
+  sheet.setColumnWidth(6, 260);
   sheet.setColumnWidth(7, 320);
 
   const lastRow = sheet.getLastRow();
@@ -445,11 +460,10 @@ function ensureAndLoadAllEvents_() {
         sheet.getRange(rowNumber, 4).setFormula(`="${FRONTEND_BASE_URL}?event=" & A${rowNumber}`);
       }
 
-      // F列（🔲 QRコードを一括作成ボタン）をGitHub Pages経由URLに自動セット（複数Googleアカウントでもエラーにならない方式）
-      if (!colFFormula || colFFormula.indexOf('script.google.com') !== -1) {
-        sheet.getRange(rowNumber, 6).setFormula(
-          `=HYPERLINK("${FRONTEND_BASE_URL}?admin=qr&event=" & A${rowNumber}, "🔲 QRコードを一括作成")`
-        );
+      // F列（🔲 QRコードを一括作成ボタン）をトークン付きGitHub Pages URLに更新
+      const targetFormula = `=HYPERLINK("${FRONTEND_BASE_URL}?admin=qr&event=" & A${rowNumber} & "&token=${adminToken}", "🔲 QRコードを一括作成")`;
+      if (!colFFormula || colFFormula !== targetFormula) {
+        sheet.getRange(rowNumber, 6).setFormula(targetFormula);
       }
 
       const spreadsheetId = extractSpreadsheetId_(rawUrl);
@@ -478,7 +492,8 @@ function ensureAndLoadAllEvents_() {
   return {
     configSheetUrl: configSs.getUrl(),
     sheet: sheet,
-    events: events
+    events: events,
+    adminToken: adminToken
   };
 }
 
@@ -568,12 +583,14 @@ function generateEventQrCodes_(ev, configSheet, overwriteFlag) {
         xFileUrl = existingFileMap[xFileName].getUrl();
         skippedCount++;
       } else {
-        if (existingFileMap[xFileName] && overwriteFlag) {
-          existingFileMap[xFileName].setTrashed(true);
-        }
+        const oldFile = existingFileMap[xFileName];
         const xBlob = fetchQrCodePngBlob_(item.xUrl, xFileName);
         const savedX = qrFolder.createFile(xBlob);
         existingFileMap[xFileName] = savedX;
+        // 上書き時は新しいファイルの保存に成功してから旧ファイルを削除
+        if (oldFile && overwriteFlag) {
+          oldFile.setTrashed(true);
+        }
         xStatus = overwriteFlag ? '再作成（上書き）' : '新規作成';
         xFileUrl = savedX.getUrl();
         createdCount++;
@@ -589,12 +606,14 @@ function generateEventQrCodes_(ev, configSheet, overwriteFlag) {
         igFileUrl = existingFileMap[igFileName].getUrl();
         skippedCount++;
       } else {
-        if (existingFileMap[igFileName] && overwriteFlag) {
-          existingFileMap[igFileName].setTrashed(true);
-        }
+        const oldFile = existingFileMap[igFileName];
         const igBlob = fetchQrCodePngBlob_(item.instagramUrl, igFileName);
         const savedIg = qrFolder.createFile(igBlob);
         existingFileMap[igFileName] = savedIg;
+        // 上書き時は新しいファイルの保存に成功してから旧ファイルを削除
+        if (oldFile && overwriteFlag) {
+          oldFile.setTrashed(true);
+        }
         igStatus = overwriteFlag ? '再作成（上書き）' : '新規作成';
         igFileUrl = savedIg.getUrl();
         createdCount++;
@@ -709,7 +728,7 @@ function detectXColumnIndex_(headers) {
   for (let i = 0; i < headers.length; i++) {
     const h = String(headers[i] || '').trim();
     if (/本名|住所|郵便|電話|メール|Email|タイムスタンプ/i.test(h)) continue;
-    if (/Xアカウント|Twitter|旧Twitter|^X[\s　（(]/i.test(h)) {
+    if (/\bX\b|Xアカウント|Twitter|旧Twitter|X[\s　（(]/i.test(h)) {
       return i;
     }
   }
@@ -846,99 +865,6 @@ function recordQrListToLogSpreadsheet_(mainFolder, logSpreadsheetName, itemLogs)
 }
 
 /**
- * QRコード作成完了時にブラウザに表示する管理画面HTML
- */
-function renderQrResultHtml_(results, requestedEventId) {
-  let sectionsHtml = '';
-
-  for (let i = 0; i < results.length; i++) {
-    const res = results[i];
-    let rowsHtml = '';
-
-    for (let j = 0; j < res.items.length; j++) {
-      const it = res.items[j];
-      const xCell = it.xFileUrl
-        ? `<a href="${escapeHtmlServer_(it.xFileUrl)}" target="_blank" style="color:#4f46e5;font-weight:600;">${escapeHtmlServer_(it.xFileName)}</a> <span style="font-size:12px;color:#16a34a;">(${escapeHtmlServer_(it.xStatus)})</span>`
-        : `<span style="color:#94a3b8;">未登録</span>`;
-
-      const igCell = it.igFileUrl
-        ? `<a href="${escapeHtmlServer_(it.igFileUrl)}" target="_blank" style="color:#4f46e5;font-weight:600;">${escapeHtmlServer_(it.igFileName)}</a> <span style="font-size:12px;color:#16a34a;">(${escapeHtmlServer_(it.igStatus)})</span>`
-        : `<span style="color:#94a3b8;">未登録</span>`;
-
-      rowsHtml += `
-        <tr>
-          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-weight:600;">${escapeHtmlServer_(it.accountName)}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">${xCell}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">${igCell}</td>
-        </tr>
-      `;
-    }
-
-    const overwriteUrl = `${GAS_WEBAPP_URL}?action=generate_qr&event=${encodeURIComponent(res.eventId)}&overwrite=1`;
-
-    sectionsHtml += `
-      <div style="background:#fff;border-radius:14px;padding:24px;margin-bottom:24px;box-shadow:0 2px 8px rgba(0,0,0,0.06);border:1px solid #e2e8f0;">
-        <h2 style="margin:0 0 8px;color:#1e1b4b;font-size:20px;">✅ ${escapeHtmlServer_(res.eventName)}：QRコード作成完了</h2>
-        <p style="margin:0 0 16px;color:#475569;font-size:14px;">
-          出展者数：<strong>${res.totalExhibitors}名</strong> ／
-          今回新規作成：<strong style="color:#16a34a;">${res.createdCount}件</strong> ／
-          作成済みスキップ：<strong>${res.skippedCount}件</strong>
-        </p>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;">
-          <a href="${escapeHtmlServer_(res.qrFolderUrl)}" target="_blank"
-             style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:700;font-size:14px;">
-            📂 Googleドライブの「📁 QRコード」フォルダを開く
-          </a>
-          <a href="${escapeHtmlServer_(overwriteUrl)}"
-             style="display:inline-block;background:#f1f5f9;color:#334155;text-decoration:none;padding:12px 16px;border-radius:8px;font-weight:600;font-size:13px;border:1px solid #cbd5e1;">
-            🔄 すべて上書き再作成する
-          </a>
-        </div>
-        <table style="width:100%;border-collapse:collapse;font-size:14px;text-align:left;">
-          <thead>
-            <tr style="background:#f8fafc;color:#475569;">
-              <th style="padding:10px 12px;border-bottom:2px solid #e2e8f0;">出展者名（アカウント名）</th>
-              <th style="padding:10px 12px;border-bottom:2px solid #e2e8f0;">X（{アカウント名}_X.png）</th>
-              <th style="padding:10px 12px;border-bottom:2px solid #e2e8f0;">Instagram（{アカウント名}_Instagram.png）</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  const html = `
-    <!DOCTYPE html>
-    <html lang="ja">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>SNS QRコード一括作成完了</title>
-    </head>
-    <body style="font-family:'Helvetica Neue',Arial,'Hiragino Kaku Gothic ProN',sans-serif;background:#f8fafc;color:#0f172a;margin:0;padding:32px 16px;">
-      <div style="max-width:860px;margin:0 auto;">
-        ${sectionsHtml}
-      </div>
-    </body>
-    </html>
-  `;
-
-  return HtmlService.createHtmlOutput(html).setTitle('SNS QRコード一括作成完了');
-}
-
-function escapeHtmlServer_(str) {
-  return String(str || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-/**
  * イベントID（大文字小文字無視）で対象イベントを検索
  */
 function findEventById_(events, eventId) {
@@ -1004,9 +930,11 @@ function detectAccountColumnIndex_(headers) {
     if (/本名|住所|郵便|電話|メール|Email|タイムスタンプ/i.test(h)) {
       continue;
     }
-    // 「アカウント名」または「出展者名」（ただしXアカウント・Instagramアカウントは除く）
-    if ((h.indexOf('アカウント名') !== -1 || h.indexOf('出展者名') !== -1) && !/X|Twitter|Instagram|インスタ/i.test(h)) {
-      return i;
+    // 「アカウント名」または「出展者名」（ただしSNSアカウント列は除く）
+    if (h.indexOf('アカウント名') !== -1 || h.indexOf('出展者名') !== -1) {
+      if (!/\bX\b|Twitter|Instagram|インスタ/i.test(h)) {
+        return i;
+      }
     }
   }
   return DEFAULT_ACCOUNT_COL_INDEX;

@@ -1134,8 +1134,8 @@
     });
 
     /**
-     * 管理者用：SNS QRコード一括作成モード (?admin=qr&event=...)
-     * GitHub Pages上で動作するため、Googleの複数アカウントログイン(/u/8/)エラーを100%回避します
+     * 管理者用：SNS QRコード一括作成モード (?admin=qr&event=...&token=...)
+     * GitHub Pages上で動作し、GASとCORS JSON通信を行って結果を表示します
      */
     async function runAdminQrMode(overwrite = false) {
       mainFormWrapper.style.display = 'none';
@@ -1143,6 +1143,7 @@
       adminQrCard.classList.add('active');
       headerTitle.textContent = 'SNS QRコード一括作成（管理者専用）';
 
+      const token = (urlParams.get('token') || '').trim();
       const targetLabel = state.eventId ? `（対象: ${state.eventId}）` : '（全会場）';
       adminQrTitle.textContent = `🔲 SNS QRコード一括作成 ${targetLabel}`;
       adminQrBody.innerHTML = `
@@ -1157,41 +1158,64 @@
         </div>
       `;
 
+      if (!token) {
+        adminQrBody.innerHTML = `
+          <div style="padding:18px; background:var(--danger-bg); border:1px solid var(--danger-border); border-radius:12px; margin-bottom:16px;">
+            <h3 style="color:var(--danger); font-size:1.05rem; margin-bottom:6px;">⚠️ 認証エラー</h3>
+            <p style="font-size:0.875rem; color:var(--text-main);">
+              管理者トークンが指定されていません。スプレッドシート「⚙️自撮り狂_入稿システム設定」のF列にある専用リンクからアクセスしてください。
+            </p>
+          </div>
+        `;
+        return;
+      }
+
       const qrApiUrl =
-        `${GAS_API_URL}?action=generate_qr` +
+        `${GAS_API_URL}?action=generate_qr&token=${encodeURIComponent(token)}` +
         (state.eventId ? `&event=${encodeURIComponent(state.eventId)}` : '') +
         (overwrite ? '&overwrite=1' : '');
 
       try {
-        // まずJSONレスポンスとして取得を試みる（GAS バージョン4以降）
         const resp = await fetch(qrApiUrl, {
           method: 'GET',
           credentials: 'omit',
           headers: { 'Accept': 'application/json' }
         });
-        const data = await resp.json();
-        if (data && data.success && Array.isArray(data.results)) {
-          renderAdminQrSuccessJson(data.results);
-          return;
-        }
-      } catch (e) {
-        // GAS バージョン3（HTMLレスポンス）の場合は mode: 'no-cors' + credentials: 'omit' で実行トリガーを送る
-        try {
-          await fetch(qrApiUrl, {
-            method: 'GET',
-            mode: 'no-cors',
-            credentials: 'omit'
-          });
-        } catch (innerErr) {
-          console.error(innerErr);
-        }
-      }
 
-      // フォールバック完了表示（GAS バージョン3でも確実にQR作成が実行された後の案内）
-      renderAdminQrFallbackSuccess();
+        if (!resp.ok) {
+          throw new Error(`サーバー通信エラー（HTTP ${resp.status}）`);
+        }
+
+        const data = await resp.json();
+        if (!data.success) {
+          throw new Error(data.message || 'QRコードの生成処理でエラーが発生しました。');
+        }
+
+        if (Array.isArray(data.results)) {
+          renderAdminQrSuccessJson(data.results, token);
+        } else {
+          throw new Error('予期しないデータ形式を受信しました。');
+        }
+      } catch (err) {
+        console.error('QRコード作成エラー:', err);
+        adminQrBody.innerHTML = `
+          <div style="padding:18px; background:var(--danger-bg); border:1px solid var(--danger-border); border-radius:12px; margin-bottom:16px;">
+            <h3 style="color:var(--danger); font-size:1.05rem; margin-bottom:6px;">❌ QRコードの作成に失敗しました</h3>
+            <p style="font-size:0.875rem; color:var(--text-main); margin-bottom:12px;">
+              ${escapeHtml(err.message || '処理中にエラーが発生しました。')}
+            </p>
+            <p style="font-size:0.8rem; color:var(--text-sub);">
+              ※最新の Apps Script（コード.gs）が正しくデプロイされているか、トークンが有効かご確認ください。
+            </p>
+          </div>
+          <button type="button" onclick="runAdminQrMode(${overwrite})" class="btn-reload" style="padding:12px; justify-content:center; font-weight:700;">
+            🔄 もう一度試す
+          </button>
+        `;
+      }
     }
 
-    function renderAdminQrSuccessJson(results) {
+    function renderAdminQrSuccessJson(results, token) {
       let html = '';
       results.forEach((res) => {
         let rows = '';
@@ -1218,7 +1242,7 @@
             </h3>
             <p style="font-size:0.875rem; color:var(--text-sub); margin-bottom:14px;">
               出展者数：<strong>${res.totalExhibitors}名</strong> ／
-              今回新規作成：<strong>${res.createdCount}件</strong> ／
+              今回新規作成：<strong style="color:var(--success);">${res.createdCount}件</strong> ／
               作成済スキップ：<strong>${res.skippedCount}件</strong>
             </p>
             <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
@@ -1226,6 +1250,9 @@
                 <span>📂 Googleドライブの「📁 QRコード」フォルダを開く</span>
                 <span>→</span>
               </a>
+              <button type="button" onclick="runAdminQrMode(true)" class="btn-reload" style="padding:10px 14px; font-size:0.85rem; font-weight:600;">
+                🔄 既存ファイルも含めてすべて上書き再作成する
+              </button>
             </div>
             <div style="overflow-x:auto;">
               <table style="width:100%; border-collapse:collapse; font-size:0.85rem; background:#fff;">
@@ -1244,32 +1271,6 @@
       });
 
       adminQrBody.innerHTML = html;
-    }
-
-    function renderAdminQrFallbackSuccess() {
-      adminQrBody.innerHTML = `
-        <div style="padding:18px; background:var(--success-bg); border:1px solid var(--success-border); border-radius:12px; margin-bottom:16px;">
-          <h3 style="color:#15803d; font-size:1.05rem; margin-bottom:6px;">
-            ✅ QRコード一括作成を実行しました！
-          </h3>
-          <p style="font-size:0.875rem; color:#166534;">
-            Googleドライブの各会場フォルダ内にある<strong>「📁 QRコード」</strong>フォルダに、全員分の <code>{アカウント名}_X.png</code> と <code>{アカウント名}_Instagram.png</code> が保存されています！
-          </p>
-        </div>
-        <div class="event-link-list">
-          <a href="https://drive.google.com/drive/folders/1MP94O-Zo5Cf1OTDsPt0bF3qBFa_it-jR" target="_blank" class="event-link-btn">
-            <span>📂 自撮り狂2027大阪「📁 QRコード」フォルダを開く</span>
-            <span>→</span>
-          </a>
-          <a href="https://drive.google.com/drive/folders/1JfsDMiolq5-PYlF5-xV8N3OElqO8BcLo" target="_blank" class="event-link-btn">
-            <span>📂 自撮り狂2027東京「📁 QRコード」フォルダを開く</span>
-            <span>→</span>
-          </a>
-          <button type="button" onclick="runAdminQrMode(true)" class="btn-reload" style="padding:12px; justify-content:center; font-weight:700;">
-            🔄 既存ファイルも含めてすべて上書き再作成する
-          </button>
-        </div>
-      `;
     }
 
     /**
