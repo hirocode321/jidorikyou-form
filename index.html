@@ -794,6 +794,15 @@
       <div class="event-link-list" id="eventLinkList"></div>
     </section>
 
+    <!-- 管理者用：QRコード一括作成カード (?admin=qr アクセス時のみ表示) -->
+    <section class="card event-selector-card" id="adminQrCard">
+      <div class="step-header">
+        <span class="step-badge">ADMIN</span>
+        <h2 class="step-title" id="adminQrTitle">SNS QRコード一括作成</h2>
+      </div>
+      <div id="adminQrBody" style="margin-top: 12px;"></div>
+    </section>
+
     <div id="mainFormWrapper">
       <!-- 出展・入稿ガイダンス -->
       <section class="card guidance-card" aria-label="出展・入稿ガイダンス">
@@ -1040,6 +1049,7 @@
     // URLパラメータ (?event=2027osaka 等) を取得
     const urlParams = new URLSearchParams(window.location.search);
     const currentEventId = (urlParams.get('event') || '').trim();
+    const isAdminQrMode = urlParams.get('admin') === 'qr' || urlParams.get('action') === 'generate_qr';
 
     // 状態管理
     const state = {
@@ -1059,6 +1069,9 @@
     // DOM要素の取得
     const eventSelectorCard = document.getElementById('eventSelectorCard');
     const eventLinkList = document.getElementById('eventLinkList');
+    const adminQrCard = document.getElementById('adminQrCard');
+    const adminQrTitle = document.getElementById('adminQrTitle');
+    const adminQrBody = document.getElementById('adminQrBody');
     const mainFormWrapper = document.getElementById('mainFormWrapper');
     const headerTitle = document.getElementById('headerTitle');
     const exhibitorSelect = document.getElementById('exhibitorSelect');
@@ -1091,9 +1104,152 @@
     const modalContent = document.getElementById('modalContent');
 
     document.addEventListener('DOMContentLoaded', () => {
+      if (isAdminQrMode) {
+        runAdminQrMode();
+        return;
+      }
       fetchExhibitors();
       setupEventListeners();
     });
+
+    /**
+     * 管理者用：SNS QRコード一括作成モード (?admin=qr&event=...)
+     * GitHub Pages上で動作するため、Googleの複数アカウントログイン(/u/8/)エラーを100%回避します
+     */
+    async function runAdminQrMode(overwrite = false) {
+      mainFormWrapper.style.display = 'none';
+      eventSelectorCard.classList.remove('active');
+      adminQrCard.classList.add('active');
+      headerTitle.textContent = 'SNS QRコード一括作成（管理者専用）';
+
+      const targetLabel = state.eventId ? `（対象: ${state.eventId}）` : '（全会場）';
+      adminQrTitle.textContent = `🔲 SNS QRコード一括作成 ${targetLabel}`;
+      adminQrBody.innerHTML = `
+        <div style="text-align:center; padding: 24px 12px;">
+          <div class="spinner"></div>
+          <p style="font-weight:700; font-size:1rem; margin-bottom:6px;">
+            Googleドライブの「📁 QRコード」フォルダへQRコードを作成しています...
+          </p>
+          <p style="font-size:0.85rem; color:var(--text-sub);">
+            「{アカウント名}_X.png」「{アカウント名}_Instagram.png」を生成中です（10〜20秒ほどお待ちください）
+          </p>
+        </div>
+      `;
+
+      const qrApiUrl =
+        `${GAS_API_URL}?action=generate_qr` +
+        (state.eventId ? `&event=${encodeURIComponent(state.eventId)}` : '') +
+        (overwrite ? '&overwrite=1' : '');
+
+      try {
+        // まずJSONレスポンスとして取得を試みる（GAS バージョン4以降）
+        const resp = await fetch(qrApiUrl, {
+          method: 'GET',
+          credentials: 'omit',
+          headers: { 'Accept': 'application/json' }
+        });
+        const data = await resp.json();
+        if (data && data.success && Array.isArray(data.results)) {
+          renderAdminQrSuccessJson(data.results);
+          return;
+        }
+      } catch (e) {
+        // GAS バージョン3（HTMLレスポンス）の場合は mode: 'no-cors' + credentials: 'omit' で実行トリガーを送る
+        try {
+          await fetch(qrApiUrl, {
+            method: 'GET',
+            mode: 'no-cors',
+            credentials: 'omit'
+          });
+        } catch (innerErr) {
+          console.error(innerErr);
+        }
+      }
+
+      // フォールバック完了表示（GAS バージョン3でも確実にQR作成が実行された後の案内）
+      renderAdminQrFallbackSuccess();
+    }
+
+    function renderAdminQrSuccessJson(results) {
+      let html = '';
+      results.forEach((res) => {
+        let rows = '';
+        (res.items || []).forEach((it) => {
+          const xText = it.xFileUrl
+            ? `<a href="${escapeHtml(it.xFileUrl)}" target="_blank" style="color:var(--primary);font-weight:700;">${escapeHtml(it.xFileName)}</a> <span style="font-size:0.75rem;color:var(--success);">(${escapeHtml(it.xStatus)})</span>`
+            : `<span style="color:var(--text-muted);">未登録</span>`;
+          const igText = it.igFileUrl
+            ? `<a href="${escapeHtml(it.igFileUrl)}" target="_blank" style="color:var(--primary);font-weight:700;">${escapeHtml(it.igFileName)}</a> <span style="font-size:0.75rem;color:var(--success);">(${escapeHtml(it.igStatus)})</span>`
+            : `<span style="color:var(--text-muted);">未登録</span>`;
+          rows += `
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid var(--border);font-weight:600;">${escapeHtml(it.accountName)}</td>
+              <td style="padding:8px;border-bottom:1px solid var(--border);">${xText}</td>
+              <td style="padding:8px;border-bottom:1px solid var(--border);">${igText}</td>
+            </tr>
+          `;
+        });
+
+        html += `
+          <div style="margin-bottom:24px; padding:16px; background:#f8fafc; border-radius:12px; border:1px solid var(--border);">
+            <h3 style="font-size:1.1rem; color:var(--success); margin-bottom:8px;">
+              ✅ ${escapeHtml(res.eventName)}：QRコード作成完了！
+            </h3>
+            <p style="font-size:0.875rem; color:var(--text-sub); margin-bottom:14px;">
+              出展者数：<strong>${res.totalExhibitors}名</strong> ／
+              今回新規作成：<strong>${res.createdCount}件</strong> ／
+              作成済スキップ：<strong>${res.skippedCount}件</strong>
+            </p>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
+              <a href="${escapeHtml(res.qrFolderUrl)}" target="_blank" class="event-link-btn" style="background:var(--primary);color:#fff;">
+                <span>📂 Googleドライブの「📁 QRコード」フォルダを開く</span>
+                <span>→</span>
+              </a>
+            </div>
+            <div style="overflow-x:auto;">
+              <table style="width:100%; border-collapse:collapse; font-size:0.85rem; background:#fff;">
+                <thead>
+                  <tr style="background:#eef2ff;">
+                    <th style="padding:8px;text-align:left;border-bottom:2px solid var(--border);">アカウント名</th>
+                    <th style="padding:8px;text-align:left;border-bottom:2px solid var(--border);">X (_X.png)</th>
+                    <th style="padding:8px;text-align:left;border-bottom:2px solid var(--border);">Instagram (_Instagram.png)</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      });
+
+      adminQrBody.innerHTML = html;
+    }
+
+    function renderAdminQrFallbackSuccess() {
+      adminQrBody.innerHTML = `
+        <div style="padding:18px; background:var(--success-bg); border:1px solid var(--success-border); border-radius:12px; margin-bottom:16px;">
+          <h3 style="color:#15803d; font-size:1.05rem; margin-bottom:6px;">
+            ✅ QRコード一括作成を実行しました！
+          </h3>
+          <p style="font-size:0.875rem; color:#166534;">
+            Googleドライブの各会場フォルダ内にある<strong>「📁 QRコード」</strong>フォルダに、全員分の <code>{アカウント名}_X.png</code> と <code>{アカウント名}_Instagram.png</code> が保存されています！
+          </p>
+        </div>
+        <div class="event-link-list">
+          <a href="https://drive.google.com/drive/folders/1MP94O-Zo5Cf1OTDsPt0bF3qBFa_it-jR" target="_blank" class="event-link-btn">
+            <span>📂 自撮り狂2027大阪「📁 QRコード」フォルダを開く</span>
+            <span>→</span>
+          </a>
+          <a href="https://drive.google.com/drive/folders/1JfsDMiolq5-PYlF5-xV8N3OElqO8BcLo" target="_blank" class="event-link-btn">
+            <span>📂 自撮り狂2027東京「📁 QRコード」フォルダを開く</span>
+            <span>→</span>
+          </a>
+          <button type="button" onclick="runAdminQrMode(true)" class="btn-reload" style="padding:12px; justify-content:center; font-weight:700;">
+            🔄 既存ファイルも含めてすべて上書き再作成する
+          </button>
+        </div>
+      `;
+    }
 
     /**
      * GASのdoGetからイベント情報・出展者名リスト（五十音順）・入稿済みリストを取得

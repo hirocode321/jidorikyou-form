@@ -394,7 +394,7 @@ function ensureAndLoadAllEvents_() {
         item.spreadsheetUrl,
         `="${FRONTEND_BASE_URL}?event=" & A${rowNum}`,
         '',
-        `=HYPERLINK("${GAS_WEBAPP_URL}?action=generate_qr&event=" & A${rowNum}, "🔲 QRコードを一括作成")`,
+        `=HYPERLINK("${FRONTEND_BASE_URL}?admin=qr&event=" & A${rowNum}, "🔲 QRコードを一括作成")`,
         ''
       ]);
     }
@@ -445,10 +445,10 @@ function ensureAndLoadAllEvents_() {
         sheet.getRange(rowNumber, 4).setFormula(`="${FRONTEND_BASE_URL}?event=" & A${rowNumber}`);
       }
 
-      // F列（🔲 QRコードを一括作成ボタン）が空なら自動HYPERLINK数式をセット
-      if (!colFFormula) {
+      // F列（🔲 QRコードを一括作成ボタン）をGitHub Pages経由URLに自動セット（複数Googleアカウントでもエラーにならない方式）
+      if (!colFFormula || colFFormula.indexOf('script.google.com') !== -1) {
         sheet.getRange(rowNumber, 6).setFormula(
-          `=HYPERLINK("${GAS_WEBAPP_URL}?action=generate_qr&event=" & A${rowNumber}, "🔲 QRコードを一括作成")`
+          `=HYPERLINK("${FRONTEND_BASE_URL}?admin=qr&event=" & A${rowNumber}, "🔲 QRコードを一括作成")`
         );
       }
 
@@ -489,7 +489,7 @@ function ensureAndLoadAllEvents_() {
  */
 
 /**
- * 設定シートの「🔲 QRコードを一括作成」リンクをクリックした際の処理＆結果HTML表示
+ * 設定シートの「🔲 QRコードを一括作成」リンクをクリックした際の処理＆結果返却
  */
 function handleQrGenerationRequest_(events, configSheet, requestedEventId, overwriteFlag) {
   try {
@@ -511,15 +511,15 @@ function handleQrGenerationRequest_(events, configSheet, requestedEventId, overw
       results.push(generateEventQrCodes_(targetEvents[i], configSheet, overwriteFlag));
     }
 
-    return renderQrResultHtml_(results, requestedEventId);
+    return createJsonResponse_({
+      success: true,
+      results: results
+    });
   } catch (err) {
-    return HtmlService.createHtmlOutput(
-      `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>QRコード作成エラー</title></head>` +
-      `<body style="font-family:sans-serif;padding:32px;background:#fef2f2;color:#991b1b;">` +
-      `<h2>⚠️ QRコード作成中にエラーが発生しました</h2>` +
-      `<p>${escapeHtmlServer_(err.message || String(err))}</p>` +
-      `</body></html>`
-    ).setTitle('QRコード作成エラー');
+    return createJsonResponse_({
+      success: false,
+      message: err.message || String(err)
+    });
   }
 }
 
