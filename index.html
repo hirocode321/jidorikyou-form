@@ -973,9 +973,13 @@
             <span class="step-badge">STEP 3</span>
             <h2 class="step-title">入稿前の最終確認</h2>
           </div>
-          <p class="step-desc">以下の3項目すべてをご確認のうえ、チェックを入れてください。</p>
+          <p class="step-desc">以下の4項目すべてをご確認のうえ、チェックを入れてください。</p>
 
           <div class="check-group">
+            <label class="check-item" id="labelCheckAccount">
+              <input type="checkbox" class="req-check" id="checkAccount" />
+              <span class="check-label" id="checkAccountLabel">｛アカウント名｝で間違いないですか？</span>
+            </label>
             <label class="check-item" id="labelCheck1">
               <input type="checkbox" class="req-check" id="checkSize" />
               <span class="check-label">3MB以上</span>
@@ -986,7 +990,7 @@
             </label>
             <label class="check-item" id="labelCheck3">
               <input type="checkbox" class="req-check" id="checkA3" />
-              <span class="check-label">A3の比率になってますか？</span>
+              <span class="check-label">A3の比率になってますか？（そうでなければ運営側でトリミングします。）</span>
             </label>
           </div>
 
@@ -1078,6 +1082,8 @@
     const validationErrorList = document.getElementById('validationErrorList');
     const validationSuccessBox = document.getElementById('validationSuccessBox');
     const reqChecks = document.querySelectorAll('.req-check');
+    const checkAccount = document.getElementById('checkAccount');
+    const checkAccountLabel = document.getElementById('checkAccountLabel');
     const checkResubmit = document.getElementById('checkResubmit');
     const submitBtn = document.getElementById('submitBtn');
     const submissionForm = document.getElementById('submissionForm');
@@ -1185,6 +1191,7 @@
     function setupEventListeners() {
       reloadExhibitorsBtn.addEventListener('click', () => {
         state.selectedExhibitor = '';
+        updateAccountCheckLabel(true);
         updateStep2LockState();
         updateAlreadySubmittedBanner();
         updateSubmitButtonState();
@@ -1196,6 +1203,7 @@
         if (state.selectedExhibitor && state.file) {
           metaFileName.textContent = `${state.selectedExhibitor}.jpg`;
         }
+        updateAccountCheckLabel(true);
         updateStep2LockState();
         updateAlreadySubmittedBanner();
         updateSubmitButtonState();
@@ -1253,6 +1261,15 @@
       });
 
       submissionForm.addEventListener('submit', handleFormSubmit);
+    }
+
+    function updateAccountCheckLabel(resetCheck = false) {
+      const displayName = state.selectedExhibitor || '｛アカウント名｝';
+      checkAccountLabel.textContent = `${displayName}で間違いないですか？`;
+      if (resetCheck && checkAccount) {
+        checkAccount.checked = false;
+        checkAccount.closest('.check-item').classList.remove('checked');
+      }
     }
 
     function updateStep2LockState() {
@@ -1511,6 +1528,7 @@
       fileInput.value = '';
       previewContainer.classList.remove('active');
       alreadySubmittedAlert.classList.remove('active');
+      updateAccountCheckLabel(true);
       reqChecks.forEach((cb) => {
         cb.checked = false;
         cb.closest('.check-item').classList.remove('checked');
