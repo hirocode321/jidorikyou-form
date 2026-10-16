@@ -56,6 +56,9 @@ const ARCHIVE_FOLDER_NAME = '_旧データ（差し替え前）';
 
 // バリデーション基準値（3.00 MB = 3 * 1024 * 1024 bytes）
 const MIN_FILE_SIZE_BYTES = 3 * 1024 * 1024;
+// 上限 15 MB（GASの受信上限・Base64膨張・同時入稿時の安定性のため）
+const MAX_FILE_SIZE_MB = 15;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 /**
  * セットアップ関数：
@@ -207,9 +210,10 @@ function doGet(e) {
  */
 function doPost(e) {
   const lock = LockService.getScriptLock();
+  let tempFile = null;
   try {
-    lock.waitLock(30000);
-
+    // ※重い処理（受信・デコード・検証・Driveへの保存）はロックの外で並列実行し、
+    //   ファイル名の確定とログ記録の一瞬だけロックを取得する（同時入稿の詰まり防止）。
     if (!e || !e.postData || !e.postData.contents) {
       throw new Error('送信データが空です。');
     }
@@ -221,6 +225,13 @@ function doPost(e) {
     const isResubmitFlag = Boolean(payload.isResubmit);
     const originalFileName = String(payload.originalFileName || '');
     const mimeType = String(payload.mimeType || 'image/jpeg');
+    const requestId = String(payload.requestId || '').replace(/[^A-Za-z0-9_-]/g, '').substring(0, 64);
+
+    // 同一リクエストの再送（クライアント自動リトライ）で処理済みなら、保存せず前回の結果を返す
+    const cachedResult = getCachedResult_(requestId);
+    if (cachedResult) {
+      return createJsonResponse_(cachedResult);
+    }
 
     if (!requestedEventId) {
       throw new Error('イベントIDが指定されていません。専用URLからアクセスしてください。');
@@ -232,6 +243,10 @@ function doPost(e) {
     const cleanBase64 = rawBase64.replace(/^data:[^;]+;base64,/, '');
     if (!cleanBase64) {
       throw new Error('画像データが含まれていません。');
+    }
+    // デコード前に巨大データを早期拒否（Base64は元サイズの約4/3）
+    if (cleanBase64.length > Math.ceil(MAX_FILE_SIZE_BYTES / 3) * 4 + 16) {
+      throw new Error(`データ容量エラー：${MAX_FILE_SIZE_MB} MB以下のデータのみ入稿可能です。`);
     }
 
     const configInfo = ensureAndLoadAllEvents_();
@@ -264,6 +279,9 @@ function doPost(e) {
     if (byteLength < MIN_FILE_SIZE_BYTES) {
       throw new Error(`データ容量エラー：3.00 MB以上のデータが必要です（受信サイズ: ${sizeMB} MB）。`);
     }
+    if (byteLength > MAX_FILE_SIZE_BYTES) {
+      throw new Error(`データ容量エラー：${MAX_FILE_SIZE_MB} MB以下のデータのみ入稿可能です（受信サイズ: ${sizeMB} MB）。JPEG書き出し時の画質設定を少し下げてください。`);
+    }
 
     const dimensions = extractJpegDimensions_(decodedBytes);
     const width = dimensions ? dimensions.width : Number(payload.width || 0);
@@ -283,6 +301,28 @@ function doPost(e) {
     // ファイル名に使えない禁止記号を安全な文字に変換
     const safeFileBaseName = sanitizeFileName_(exhibitorName);
     const targetFileName = `${safeFileBaseName}.jpg`;
+
+    // ============================================================
+    // 3. 【ロック外】重いアップロード保存：一時ファイルとして「_旧データ」フォルダへ保存
+    //    （他の入稿者をブロックしない。確定はロック内で名前変更＋移動のみ）
+    // ============================================================
+    const tempName = `__tmp_${Utilities.getUuid().replace(/-/g, '')}.jpg`;
+    const blob = Utilities.newBlob(decodedBytes, 'image/jpeg', tempName);
+    tempFile = archiveFolder.createFile(blob);
+
+    // ============================================================
+    // 4. 【ロック内・短時間】既存確認 → 旧ファイル退避 → 確定 → ログ記録
+    // ============================================================
+    lock.waitLock(30000);
+
+    // ロック待ちの間に同一リクエストが処理済みになっていないか再確認
+    const cachedInLock = getCachedResult_(requestId);
+    if (cachedInLock) {
+      tempFile.setTrashed(true);
+      tempFile = null;
+      return createJsonResponse_(cachedInLock);
+    }
+
     const existingFilesIter = photoFolder.getFilesByName(targetFileName);
     const hasExistingFile = existingFilesIter.hasNext();
 
@@ -293,9 +333,6 @@ function doPost(e) {
       );
     }
 
-    // ============================================================
-    // 3. 旧ファイルの退避＆最新「{アカウント名}.jpg」を「📁 写真」に保存
-    // ============================================================
     const now = new Date();
     const stampForArchive = Utilities.formatDate(now, 'Asia/Tokyo', 'MMdd_HHmm');
     let submissionType = '新規入稿';
@@ -310,13 +347,13 @@ function doPost(e) {
       }
     }
 
-    const blob = Utilities.newBlob(decodedBytes, 'image/jpeg', targetFileName);
-    const savedFile = photoFolder.createFile(blob);
+    tempFile.setName(targetFileName);
+    tempFile.moveTo(photoFolder);
+    const savedFile = tempFile;
+    tempFile = null;
     const fileUrl = savedFile.getUrl();
 
-    // ============================================================
-    // 4. 入稿ログスプレッドシートへの記録（元の入信届シートには一切触れない）
-    // ============================================================
+    // 入稿ログスプレッドシートへの記録（元の入信届シートには一切触れない）
     const logTimestamp = Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
     const resolutionText = `${width}×${height}`;
 
@@ -335,7 +372,7 @@ function doPost(e) {
       }
     );
 
-    return createJsonResponse_({
+    const successResult = {
       success: true,
       eventId: targetEvent.eventId,
       eventName: targetEvent.eventName,
@@ -345,16 +382,50 @@ function doPost(e) {
       folderName: `${targetEvent.mainFolderName} / ${PHOTO_FOLDER_NAME}`,
       fileUrl: fileUrl,
       timestamp: logTimestamp
-    });
+    };
+    setCachedResult_(requestId, successResult);
+    return createJsonResponse_(successResult);
   } catch (err) {
+    // ロックを取れなかった場合などはクライアント側で自動再送させる
+    const msg = String((err && err.message) || '');
+    const isBusy = /Lock timeout|Could not obtain lock/i.test(msg) || /同時に実行/.test(msg);
     return createJsonResponse_({
       success: false,
-      message: err.message || 'サーバー処理中にエラーが発生しました。'
+      retryable: isBusy,
+      message: isBusy
+        ? 'サーバーが混雑しています。しばらくしてから自動で再送します。'
+        : (msg || 'サーバー処理中にエラーが発生しました。')
     });
   } finally {
+    // 失敗時に残った一時ファイルを片付ける
+    if (tempFile) {
+      try { tempFile.setTrashed(true); } catch (ignore) {}
+    }
     if (lock.hasLock()) {
       lock.releaseLock();
     }
+  }
+}
+
+/**
+ * 入稿リクエストIDごとの処理結果キャッシュ（クライアント自動リトライ時の二重保存防止）
+ */
+function getCachedResult_(requestId) {
+  if (!requestId) return null;
+  try {
+    const raw = CacheService.getScriptCache().get('submit_' + requestId);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function setCachedResult_(requestId, result) {
+  if (!requestId) return;
+  try {
+    CacheService.getScriptCache().put('submit_' + requestId, JSON.stringify(result), 21600);
+  } catch (err) {
+    // キャッシュ失敗は入稿自体に影響させない
   }
 }
 

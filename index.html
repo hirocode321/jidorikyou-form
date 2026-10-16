@@ -846,7 +846,7 @@
           </div>
           <div class="guidance-item">
             <span class="guidance-label">データ容量（圧縮データ防止）</span>
-            <span class="guidance-value"><span class="highlight">3.0 MB以上</span> 必須</span>
+            <span class="guidance-value"><span class="highlight">3.0 MB以上〜15 MB以下</span> 必須</span>
           </div>
           <div class="guidance-item">
             <span class="guidance-label">構図</span>
@@ -926,7 +926,7 @@
               </svg>
             </div>
             <p class="dropzone-main-text">クリックして写真を選択、またはドラッグ＆ドロップ</p>
-            <p class="dropzone-sub-text">JPEG形式（.jpg / .jpeg）・3.00 MB以上・縦構図</p>
+            <p class="dropzone-sub-text">JPEG形式（.jpg / .jpeg）・3.00 MB以上〜15 MB以下・縦構図</p>
             <input type="file" id="fileInput" accept=".jpg,.jpeg,image/jpeg" disabled />
           </div>
 
@@ -991,7 +991,7 @@
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
                 <polyline points="22 4 12 14.01 9 11.01"></polyline>
               </svg>
-              すべての自動チェック項目（JPEG・3.00MB以上・縦構図）をクリアしています！
+              すべての自動チェック項目（JPEG・3.00〜15MB・縦構図）をクリアしています！
             </div>
           </div>
         </section>
@@ -1011,7 +1011,7 @@
             </label>
             <label class="check-item" id="labelCheck1">
               <input type="checkbox" class="req-check" id="checkSize" />
-              <span class="check-label">3MB以上</span>
+              <span class="check-label">3〜15MB</span>
             </label>
             <label class="check-item" id="labelCheck2">
               <input type="checkbox" class="req-check" id="checkVertical" />
@@ -1064,7 +1064,12 @@
 
     // 厳格バリデーション定数（3.00 MB = 3 * 1024 * 1024 bytes）
     const MIN_SIZE_MB = 3.00;
+    const MAX_SIZE_MB = 15.00;
     const BYTES_PER_MB = 1024 * 1024;
+
+    // 送信設定：最大試行回数（初回＋自動再送1回）と、1回あたりの通信タイムアウト（120秒）
+    const SUBMIT_MAX_ATTEMPTS = 2;
+    const SUBMIT_TIMEOUT_MS = 120000;
 
     // URLパラメータ (?event=2027osaka 等) を取得
     const urlParams = new URLSearchParams(window.location.search);
@@ -1478,6 +1483,8 @@
       }
     }
 
+    let previewObjectUrl = null;
+
     function handleFileSelection(file) {
       state.file = file;
       state.base64Data = '';
@@ -1491,7 +1498,9 @@
 
       const sizeMB = file.size / BYTES_PER_MB;
       const sizeMBFormatted = sizeMB.toFixed(2);
-      const isSizeOk = sizeMB >= MIN_SIZE_MB;
+      const isTooSmall = sizeMB < MIN_SIZE_MB;
+      const isTooLarge = sizeMB > MAX_SIZE_MB;
+      const isSizeOk = !isTooSmall && !isTooLarge;
 
       state.sizeMB = Number(sizeMBFormatted);
 
@@ -1500,60 +1509,78 @@
       setBadge(badgeFormat, isJpeg, isJpeg ? 'OK' : 'NG');
 
       metaSize.textContent = `${sizeMBFormatted} MB`;
-      setBadge(badgeSize, isSizeOk, isSizeOk ? 'OK' : '3.00MB未満');
+      setBadge(badgeSize, isSizeOk, isSizeOk ? 'OK' : (isTooLarge ? `${MAX_SIZE_MB}MB超過` : '3.00MB未満'));
 
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target.result;
-        const base64Clean = String(dataUrl).replace(/^data:[^;]+;base64,/, '');
-        state.base64Data = base64Clean;
+      const sizeErrorMessage = isTooLarge
+        ? `データ容量が ${MAX_SIZE_MB} MBを超えています（現在: ${sizeMBFormatted} MB）。JPEG書き出し時の画質設定を少し下げてください（A3なら ${MAX_SIZE_MB} MB以下で十分な画質です）。`
+        : `データ容量が 3.00 MB未満です（現在: ${sizeMBFormatted} MB）。圧縮されていない元データを選択してください。`;
 
-        const img = new Image();
-        img.onload = () => {
-          const width = img.naturalWidth || img.width;
-          const height = img.naturalHeight || img.height;
-          state.width = width;
-          state.height = height;
+      // 巨大ファイルは画像として読み込まず（スマホのメモリ保護）、その場で案内する
+      if (isTooLarge) {
+        if (previewObjectUrl) {
+          URL.revokeObjectURL(previewObjectUrl);
+          previewObjectUrl = null;
+        }
+        previewImage.removeAttribute('src');
+        metaResolution.textContent = '-';
+        metaRatio.textContent = '-';
+        setBadge(badgeOrientation, false, '未判定');
+        const errors = [sizeErrorMessage];
+        if (!isJpeg) errors.unshift('データ形式がJPEG（.jpg / .jpeg）ではありません。');
+        renderValidationResult(errors);
+        return;
+      }
 
-          const isVertical = width < height;
+      // Base64化は送信時に行う。ここでは Object URL で軽量にプレビュー・寸法取得する。
+      if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+      const objectUrl = URL.createObjectURL(file);
+      previewObjectUrl = objectUrl;
 
-          previewImage.src = dataUrl;
-          metaResolution.textContent = `${width} × ${height} px`;
-          setBadge(badgeOrientation, isVertical, isVertical ? '縦構図 OK' : 'NG（横/正方形）');
+      const img = new Image();
+      img.onload = () => {
+        if (state.file !== file) return; // 後から別ファイルが選ばれた場合は無視
+        const width = img.naturalWidth || img.width;
+        const height = img.naturalHeight || img.height;
+        state.width = width;
+        state.height = height;
 
-          const ratio = width > 0 ? (height / width).toFixed(4) : '-';
-          metaRatio.textContent = `1 : ${ratio}`;
+        const isVertical = width < height;
 
-          const errors = [];
-          if (!isJpeg) {
-            errors.push('データ形式がJPEG（.jpg / .jpeg）ではありません。');
-          }
-          if (!isSizeOk) {
-            errors.push(`データ容量が 3.00 MB未満です（現在: ${sizeMBFormatted} MB）。圧縮されていない元データを選択してください。`);
-          }
-          if (!isVertical) {
-            errors.push(`縦構図ではありません（現在: 横 ${width}px × 縦 ${height}px）。A3縦構図の写真を選択してください。`);
-          }
+        previewImage.src = objectUrl;
+        metaResolution.textContent = `${width} × ${height} px`;
+        setBadge(badgeOrientation, isVertical, isVertical ? '縦構図 OK' : 'NG（横/正方形）');
 
-          renderValidationResult(errors);
-        };
+        const ratio = width > 0 ? (height / width).toFixed(4) : '-';
+        metaRatio.textContent = `1 : ${ratio}`;
 
-        img.onerror = () => {
-          previewImage.removeAttribute('src');
-          metaResolution.textContent = '取得不可';
-          setBadge(badgeOrientation, false, 'NG');
-          metaRatio.textContent = '-';
+        const errors = [];
+        if (!isJpeg) {
+          errors.push('データ形式がJPEG（.jpg / .jpeg）ではありません。');
+        }
+        if (!isSizeOk) {
+          errors.push(sizeErrorMessage);
+        }
+        if (!isVertical) {
+          errors.push(`縦構図ではありません（現在: 横 ${width}px × 縦 ${height}px）。A3縦構図の写真を選択してください。`);
+        }
 
-          const errors = ['画像ファイルとして読み込めませんでした。破損していないJPEG画像を選択してください。'];
-          if (!isJpeg) errors.unshift('データ形式がJPEG（.jpg / .jpeg）ではありません。');
-          if (!isSizeOk) errors.push(`データ容量が 3.00 MB未満です（現在: ${sizeMBFormatted} MB）。`);
-          renderValidationResult(errors);
-        };
-
-        img.src = dataUrl;
+        renderValidationResult(errors);
       };
 
-      reader.readAsDataURL(file);
+      img.onerror = () => {
+        if (state.file !== file) return;
+        previewImage.removeAttribute('src');
+        metaResolution.textContent = '取得不可';
+        setBadge(badgeOrientation, false, 'NG');
+        metaRatio.textContent = '-';
+
+        const errors = ['画像ファイルとして読み込めませんでした。破損していないJPEG画像を選択してください。'];
+        if (!isJpeg) errors.unshift('データ形式がJPEG（.jpg / .jpeg）ではありません。');
+        if (!isSizeOk) errors.push(sizeErrorMessage);
+        renderValidationResult(errors);
+      };
+
+      img.src = objectUrl;
     }
 
     function setBadge(el, isOk, text) {
@@ -1592,13 +1619,111 @@
         Boolean(state.eventId) &&
         Boolean(state.selectedExhibitor) &&
         Boolean(state.file) &&
-        Boolean(state.base64Data) &&
         state.isFileValid &&
         allChecked &&
         resubmitSatisfied &&
         !state.isSubmitting;
 
       submitBtn.disabled = !canSubmit;
+    }
+
+    function generateRequestId() {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID().replace(/-/g, '');
+      }
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+    }
+
+    // 送信直前にだけBase64化する（ファイル選択時のメモリ消費を抑えるため）
+    function readFileAsBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).replace(/^data:[^;]+;base64,/, ''));
+        reader.onerror = () => reject(new Error('写真データの読み込みに失敗しました。もう一度ファイルを選択してください。'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    class RetryableError extends Error {}
+
+    // 単純リクエスト（Simple Request）として送信し、CORSプリフライト（OPTIONS）を回避する
+    async function fetchJsonWithTimeout(bodyText) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), SUBMIT_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(GAS_API_URL, {
+          method: 'POST',
+          credentials: 'omit',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: bodyText,
+          signal: controller.signal
+        });
+
+        if (response.status >= 500 || response.status === 429) {
+          throw new RetryableError(`サーバーが混雑しています（HTTP ${response.status}）`);
+        }
+        if (!response.ok) {
+          throw new Error(`通信エラーが発生しました（HTTP ${response.status}）`);
+        }
+
+        try {
+          return await response.json();
+        } catch (parseErr) {
+          if (parseErr.name === 'AbortError') throw parseErr;
+          throw new RetryableError('サーバーからの応答を読み取れませんでした。');
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          throw new RetryableError('通信がタイムアウトしました。');
+        }
+        if (err instanceof RetryableError) {
+          throw err;
+        }
+        if (err instanceof Error && /^通信エラーが発生しました/.test(err.message)) {
+          throw err;
+        }
+        throw new RetryableError('通信が切断されました（ネットワーク接続をご確認ください）。');
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function updateLoadingStatus(message, percent, stepText) {
+      const statusEl = document.getElementById('loadingStatus');
+      const barEl = document.getElementById('loadingBar');
+      const stepEl = document.getElementById('loadingStep');
+      if (statusEl && message !== null) statusEl.textContent = message;
+      if (barEl && typeof percent === 'number') barEl.style.width = `${Math.min(100, Math.max(0, percent))}%`;
+      if (stepEl && stepText !== undefined) stepEl.textContent = stepText;
+    }
+
+    function handleBeforeUnload(e) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+
+    let wakeLockSentinel = null;
+    async function acquireWakeLock() {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLockSentinel = await navigator.wakeLock.request('screen');
+        }
+      } catch (err) {
+        wakeLockSentinel = null;
+      }
+    }
+    function releaseWakeLock() {
+      try {
+        if (wakeLockSentinel) wakeLockSentinel.release();
+      } catch (err) { /* noop */ }
+      wakeLockSentinel = null;
     }
 
     async function handleFormSubmit(e) {
@@ -1608,39 +1733,73 @@
       state.isSubmitting = true;
       updateSubmitButtonState();
       showLoadingModal();
-
-      const payload = {
-        eventId: state.eventId,
-        exhibitorName: state.selectedExhibitor,
-        base64Data: state.base64Data,
-        mimeType: state.file.type,
-        originalFileName: state.file.name,
-        fileSizeBytes: state.file.size,
-        fileSizeMB: state.sizeMB,
-        width: state.width,
-        height: state.height,
-        isResubmit: checkResubmit.checked
-      };
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      acquireWakeLock();
 
       try {
-        const response = await fetch(GAS_API_URL, {
-          method: 'POST',
-          credentials: 'omit',
-          headers: {
-            'Content-Type': 'text/plain;charset=utf-8'
-          },
-          body: JSON.stringify(payload)
-        });
+        updateLoadingStatus('写真データを準備しています…', 20, '準備中 (1/3)');
+        const base64Data = await readFileAsBase64(state.file);
 
-        if (!response.ok) {
-          throw new Error(`通信エラーが発生しました（HTTP ${response.status}）`);
+        const payload = {
+          requestId: generateRequestId(),
+          eventId: state.eventId,
+          exhibitorName: state.selectedExhibitor,
+          base64Data: base64Data,
+          mimeType: state.file.type,
+          originalFileName: state.file.name,
+          fileSizeBytes: state.file.size,
+          fileSizeMB: state.sizeMB,
+          width: state.width,
+          height: state.height,
+          isResubmit: checkResubmit.checked
+        };
+        const bodyText = JSON.stringify(payload);
+
+        let result = null;
+        let lastError = null;
+        for (let attempt = 1; attempt <= SUBMIT_MAX_ATTEMPTS; attempt++) {
+          try {
+            updateLoadingStatus(
+              attempt === 1 ? '作品データを送信中です…' : `再送しています…（${attempt}/${SUBMIT_MAX_ATTEMPTS}回目）`,
+              60,
+              'データ送信中 (2/3)'
+            );
+
+            // 送信完了後はサーバー側の保存待ち状態を表示
+            const saveProgressTimer = setTimeout(() => {
+              updateLoadingStatus('サーバーでGoogleドライブ保存・記録を行っています…', 85, 'サーバー保存中 (3/3)');
+            }, 8000);
+
+            try {
+              result = await fetchJsonWithTimeout(bodyText);
+            } finally {
+              clearTimeout(saveProgressTimer);
+            }
+
+            if (result && result.retryable && !result.success) {
+              throw new RetryableError(result.message);
+            }
+            lastError = null;
+            break;
+          } catch (err) {
+            lastError = err;
+            if (!(err instanceof RetryableError) || attempt === SUBMIT_MAX_ATTEMPTS) break;
+            const waitMs = 3000 + Math.random() * 2000;
+            updateLoadingStatus(`混雑・一時的な通信エラーのため、約${Math.ceil(waitMs / 1000)}秒後に自動再送します…`, 30, '再送待機中');
+            await sleep(waitMs);
+          }
         }
 
-        const result = await response.json();
-        if (!result.success) {
-          throw new Error(result.message || 'サーバー側で入稿エラーが発生しました。');
+        if (lastError) {
+          throw lastError instanceof RetryableError
+            ? new Error(`${lastError.message} 通信環境の良い場所で、少し時間をおいてもう一度お試しください。`)
+            : lastError;
+        }
+        if (!result || !result.success) {
+          throw new Error((result && result.message) || 'サーバー側で入稿エラーが発生しました。');
         }
 
+        updateLoadingStatus('入稿が完了しました！', 100, '完了');
         state.submittedSet.add(state.selectedExhibitor);
         showResultModal(true, result);
         resetFormAfterSuccess();
@@ -1649,6 +1808,8 @@
         console.error('入稿送信エラー:', err);
         showResultModal(false, { message: err.message });
       } finally {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        releaseWakeLock();
         state.isSubmitting = false;
         updateSubmitButtonState();
       }
@@ -1658,8 +1819,13 @@
       modalContent.innerHTML = `
         <div class="spinner"></div>
         <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 6px;">作品データを入稿中です...</h3>
+        <p id="loadingStatus" style="font-size: 0.85rem; font-weight: 600; margin-bottom: 8px;">準備しています…</p>
+        <div style="width: 100%; height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; margin-bottom: 4px;">
+          <div id="loadingBar" style="width: 10%; height: 100%; background: var(--primary); transition: width 0.6s ease;"></div>
+        </div>
+        <p id="loadingStep" style="font-size: 0.8rem; color: var(--text-sub); margin-bottom: 8px;">準備中 (1/3)</p>
         <p style="font-size: 0.85rem; color: var(--text-sub);">
-          高画質データのアップロードには数十秒かかる場合があります。<br>画面を閉じずにお待ちください。
+          高画質データのアップロードには数十秒かかる場合があります。<br>画面を閉じたり、他のアプリに切り替えたりせずにお待ちください。
         </p>
       `;
       modalOverlay.classList.add('active');
@@ -1709,6 +1875,11 @@
     }
 
     function resetFormAfterSuccess() {
+      if (previewObjectUrl) {
+        URL.revokeObjectURL(previewObjectUrl);
+        previewObjectUrl = null;
+      }
+      previewImage.removeAttribute('src');
       state.selectedExhibitor = '';
       state.file = null;
       state.base64Data = '';
